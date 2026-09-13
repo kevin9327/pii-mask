@@ -26,6 +26,20 @@ npm run dev
 
 브라우저에서 `http://127.0.0.1:4177` 을 엽니다.
 
+## 지원 확장자 (process_file 왕복 검증)
+
+| 확장자 | 포맷 | 마스킹 출력 |
+|---|---|---|
+| `.hwp` / `.HWP` | HWP 5 (docagent-hwp5) | 원 포맷 |
+| `.hwpx` / `.HWPX` | HWPX (docagent-hwpx) | 원 포맷 |
+| `.hwp3` | HWP 3 (docagent-hwp3) | 원 포맷 |
+| `.txt` `.text` `.md` `.log` | 텍스트 | 원 포맷 |
+| `.csv` `.json` | CSV / JSON | 원 포맷 |
+| `.pdf` | PDF 텍스트 레이어 | TXT 대체 + 안내 |
+| `.docx` `.xlsx` | ZIP+XML | 원 포맷 |
+
+스캔 PDF는 "텍스트 없음". PPTX 등 알 수 없는 ZIP은 지원하지 않음으로 리포트하고 원본을 유지합니다.
+
 ## 탐지 규칙
 
 기본 규칙은 `pii-core/rules.toml` 입니다. UI의 텍스트 영역에 `[[rules]]` 를 추가하면 기관 커스텀 패턴을 덮어쓰거나 더할 수 있습니다.

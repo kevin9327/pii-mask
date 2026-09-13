@@ -13,8 +13,25 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         FileFormat::Pdf => pdf::extract(filename, bytes),
         FileFormat::Docx => ooxml::extract_docx(filename, bytes),
         FileFormat::Xlsx => ooxml::extract_xlsx(filename, bytes),
-        FileFormat::Json | FileFormat::Csv | FileFormat::Txt | FileFormat::Unknown => {
+        FileFormat::Json | FileFormat::Csv | FileFormat::Txt => {
             text::extract(filename, bytes, format)
+        }
+        FileFormat::Unknown => {
+            let mut warnings = vec![format!(
+                "지원하지 않는 형식입니다: {filename} (HWP/HWPX/TXT/CSV/JSON/PDF/DOCX/XLSX)"
+            )];
+            if looks_like_zip(bytes) {
+                warnings.push("ZIP 컨테이너이지만 DOCX/XLSX/HWPX가 아닙니다.".into());
+            }
+            Ok(finish(
+                filename,
+                FileFormat::Unknown,
+                bytes.to_vec(),
+                Vec::new(),
+                warnings,
+                None,
+                None,
+            ))
         }
     }
 }
@@ -49,6 +66,7 @@ pub fn sniff(filename: &str, bytes: &[u8]) -> FileFormat {
         if ext == "xlsx" {
             return FileFormat::Xlsx;
         }
+        return FileFormat::Unknown;
     }
     match ext.as_str() {
         "json" => FileFormat::Json,
@@ -56,6 +74,7 @@ pub fn sniff(filename: &str, bytes: &[u8]) -> FileFormat {
         "txt" | "text" | "log" | "md" => FileFormat::Txt,
         "hwp" => FileFormat::Hwp,
         "hwpx" => FileFormat::Hwpx,
+        "hwp3" => FileFormat::Hwp3,
         "pdf" => FileFormat::Pdf,
         "docx" => FileFormat::Docx,
         "xlsx" => FileFormat::Xlsx,

@@ -100,7 +100,14 @@ pub fn rewrite(
                 masked_paragraphs: masked_paras,
             })
         }
-        FileFormat::Txt | FileFormat::Csv | FileFormat::Json | FileFormat::Unknown => {
+        FileFormat::Unknown => Ok(RewriteOut {
+            bytes: extracted.original.clone(),
+            filename: extracted.filename.clone(),
+            fallback_note: Some("지원하지 않는 형식이라 원본을 그대로 둡니다.".into()),
+            diffs,
+            masked_paragraphs: masked_paras,
+        }),
+        FileFormat::Txt | FileFormat::Csv | FileFormat::Json => {
             let bytes = rewrite_plain(extracted, findings, mode, rules);
             Ok(RewriteOut {
                 bytes: bytes.into_bytes(),

@@ -496,6 +496,140 @@ fn already_masked_remaining_types_via_process_file() {
     );
 }
 
+fn hwp3_with_text(text: &str) -> Vec<u8> {
+    docagent_hwp3::write_classic(text)
+}
+
+fn assert_detect_and_mask(name: &str, bytes: &[u8], expected: crate::FileFormat, rrn: &str) {
+    let out = process_file(name, bytes, &cfg(MaskMode::Full, true))
+        .unwrap_or_else(|e| panic!("{name}: process_file failed: {e}"));
+    assert_eq!(
+        out.report.format, expected,
+        "{name}: sniffed {:?}, want {:?}",
+        out.report.format, expected
+    );
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "{name}: RRN not confirmed. findings={:?} warnings={:?} text-preview skipped",
+        out.report.findings,
+        out.report.warnings
+    );
+    let masked = out
+        .masked_bytes
+        .as_ref()
+        .unwrap_or_else(|| panic!("{name}: no masked bytes"));
+    let reparse_name = out.output_filename.as_deref().unwrap_or(name);
+    if expected == crate::FileFormat::Pdf {
+        assert!(
+            out.fallback_note
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_uppercase()
+                .contains("TXT"),
+            "{name}: PDF must declare TXT fallback, got {:?}",
+            out.fallback_note
+        );
+        let text = String::from_utf8_lossy(masked);
+        assert!(!text.contains(rrn), "{name}: PDF TXT fallback still has raw PII: {text}");
+        return;
+    }
+    let again = crate::parse::extract(reparse_name, masked)
+        .unwrap_or_else(|e| panic!("{name}: re-extract masked failed: {e}"));
+    assert!(
+        !again.full_text.contains(rrn),
+        "{name}: rewrite left raw PII in {}: {}",
+        reparse_name,
+        again.full_text
+    );
+}
+
+#[test]
+fn every_supported_extension_detects_and_masks_via_process_file() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let text = format!("문서 {rrn} 끝");
+    let json = format!(r#"{{"body":"{text}"}}"#);
+    let csv = format!("col\n{text}\n");
+
+    assert_detect_and_mask("sample.txt", text.as_bytes(), crate::FileFormat::Txt, &rrn);
+    assert_detect_and_mask("sample.TXT", text.as_bytes(), crate::FileFormat::Txt, &rrn);
+    assert_detect_and_mask("sample.text", text.as_bytes(), crate::FileFormat::Txt, &rrn);
+    assert_detect_and_mask("sample.md", text.as_bytes(), crate::FileFormat::Txt, &rrn);
+    assert_detect_and_mask("sample.log", text.as_bytes(), crate::FileFormat::Txt, &rrn);
+    assert_detect_and_mask("sample.csv", csv.as_bytes(), crate::FileFormat::Csv, &rrn);
+    assert_detect_and_mask("sample.JSON", json.as_bytes(), crate::FileFormat::Json, &rrn);
+    assert_detect_and_mask("sample.json", json.as_bytes(), crate::FileFormat::Json, &rrn);
+    assert_detect_and_mask(
+        "sample.pdf",
+        &pdf_with_text(&text),
+        crate::FileFormat::Pdf,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.docx",
+        &docx_with_text(&text),
+        crate::FileFormat::Docx,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.DOCX",
+        &docx_with_text(&text),
+        crate::FileFormat::Docx,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.xlsx",
+        &xlsx_with_text(&text),
+        crate::FileFormat::Xlsx,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.hwpx",
+        &hwpx_with_text(&text),
+        crate::FileFormat::Hwpx,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.HWPX",
+        &hwpx_with_text(&text),
+        crate::FileFormat::Hwpx,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.hwp",
+        &hwp5_with_text(&text),
+        crate::FileFormat::Hwp,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.HWP",
+        &hwp5_with_text(&text),
+        crate::FileFormat::Hwp,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.hwp3",
+        &hwp3_with_text(&text),
+        crate::FileFormat::Hwp3,
+        &rrn,
+    );
+}
+
+#[test]
+fn unknown_zip_is_not_parsed_as_txt() {
+    let pptx_like = write_zip(&[("ppt/slides/slide1.xml".into(), b"<p/>".to_vec())]).unwrap();
+    let out = process_file("deck.pptx", &pptx_like, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Unknown);
+    assert!(
+        out.report.warnings.iter().any(|w| w.contains("지원하지 않는")),
+        "warnings={:?}",
+        out.report.warnings
+    );
+    assert!(out.report.findings.is_empty());
+}
+
 #[test]
 fn driver_passport_bank_health_confirmed_via_process_file() {
     let license = "서울-01-123456-90";

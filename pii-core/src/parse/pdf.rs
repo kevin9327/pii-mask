@@ -40,6 +40,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             }
         }
     }
+    for note in document_info_text(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     for note in annotation_and_field_text(&doc) {
         if note.trim().is_empty() {
             continue;
@@ -162,6 +174,56 @@ fn content_stream_text(data: &[u8]) -> Result<String> {
         }
     }
     Ok(out)
+}
+
+fn document_info_text(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(info) = doc.trailer.get(b"Info") {
+        if let Some(resolved) = resolve_obj(doc, info) {
+            if let Object::Dictionary(dict) = resolved {
+                for key in [
+                    b"Title".as_slice(),
+                    b"Author".as_slice(),
+                    b"Subject".as_slice(),
+                    b"Keywords".as_slice(),
+                    b"Creator".as_slice(),
+                    b"Producer".as_slice(),
+                ] {
+                    if let Ok(v) = dict.get(key) {
+                        if let Some(s) = pdf_obj_string(doc, v) {
+                            if !s.trim().is_empty() {
+                                out.push(s);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(root) = doc.trailer.get(b"Root") {
+        if let Some(catalog) = resolve_obj(doc, root) {
+            if let Object::Dictionary(dict) = catalog {
+                if let Ok(meta) = dict.get(b"Metadata") {
+                    if let Some(s) = metadata_stream_text(doc, meta) {
+                        out.push(s);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn metadata_stream_text(doc: &Document, obj: &Object) -> Option<String> {
+    let resolved = resolve_obj(doc, obj)?;
+    let Object::Stream(stream) = resolved else {
+        return None;
+    };
+    let mut stream = stream.clone();
+    let _ = stream.decompress();
+    String::from_utf8(stream.content.clone())
+        .ok()
+        .or_else(|| Some(String::from_utf8_lossy(&stream.content).into_owned()))
 }
 
 /// Sticky notes, markup /Contents, and AcroForm /V values — not the page

@@ -81,6 +81,17 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                     },
                 });
             }
+            for (i, t) in xlsx_header_footer_texts(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: 10_000 + i,
+                    },
+                });
+            }
         }
         if key.starts_with("xl/comments") && key.ends_with(".xml") {
             let xml = String::from_utf8_lossy(data).into_owned();
@@ -198,6 +209,81 @@ pub fn rewrite_docx_paragraphs(xml: &str, new_texts: &[String]) -> String {
         rest = &after[pend + 6..];
     }
     out.push_str(rest);
+    out
+}
+
+const XLSX_HF_TAGS: &[&str] = &[
+    "oddHeader",
+    "oddFooter",
+    "evenHeader",
+    "evenFooter",
+    "firstHeader",
+    "firstFooter",
+];
+
+pub fn xlsx_header_footer_texts(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for tag in XLSX_HF_TAGS {
+        if let Some(inner) = xml_tag_inner(xml, tag) {
+            if !inner.is_empty() {
+                out.push(xml_unescape(&inner));
+            }
+        }
+    }
+    out
+}
+
+pub fn rewrite_xlsx_header_footers(xml: &str, new_texts: &[String]) -> String {
+    let mut out = xml.to_string();
+    let mut idx = 0usize;
+    for tag in XLSX_HF_TAGS {
+        if xml_tag_inner(&out, tag).is_none() {
+            continue;
+        }
+        if idx >= new_texts.len() {
+            break;
+        }
+        out = replace_tag_inner(&out, tag, &new_texts[idx]);
+        idx += 1;
+    }
+    out
+}
+
+fn xml_tag_inner(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}");
+    let close = format!("</{tag}>");
+    let s = find_open(xml, tag)?;
+    let after = &xml[s..];
+    let gt = after.find('>')?;
+    if after.as_bytes().get(gt.saturating_sub(1)) == Some(&b'/') {
+        return None;
+    }
+    let inner_start = s + gt + 1;
+    let e = xml[inner_start..].find(&close)?;
+    let _ = open;
+    Some(xml[inner_start..inner_start + e].to_string())
+}
+
+fn replace_tag_inner(xml: &str, tag: &str, new_text: &str) -> String {
+    let close = format!("</{tag}>");
+    let Some(s) = find_open(xml, tag) else {
+        return xml.to_string();
+    };
+    let after = &xml[s..];
+    let Some(gt) = after.find('>') else {
+        return xml.to_string();
+    };
+    if after.as_bytes().get(gt.saturating_sub(1)) == Some(&b'/') {
+        return xml.to_string();
+    }
+    let inner_start = s + gt + 1;
+    let Some(e) = xml[inner_start..].find(&close) else {
+        return xml.to_string();
+    };
+    let mut out = String::new();
+    out.push_str(&xml[..inner_start]);
+    out.push_str(&xml_escape(new_text));
+    out.push_str(&xml[inner_start + e..]);
     out
 }
 

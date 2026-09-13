@@ -303,7 +303,14 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
         } else if key == "xl/sharedStrings.xml" {
             rewrite_shared_strings(&xml, texts)
         } else if key.starts_with("xl/worksheets/") {
-            rewrite_sheet_values(&xml, texts)
+            let cell_n = crate::parse::ooxml::xlsx_inline_and_values(&xml).len();
+            let (cell_texts, hf_texts) = if texts.len() > cell_n {
+                (&texts[..cell_n], &texts[cell_n..])
+            } else {
+                (texts.as_slice(), &[][..])
+            };
+            let xml = rewrite_sheet_values(&xml, cell_texts);
+            crate::parse::ooxml::rewrite_xlsx_header_footers(&xml, hf_texts)
         } else if key.starts_with("xl/comments") {
             crate::parse::ooxml::rewrite_xlsx_comments(&xml, texts)
         } else {

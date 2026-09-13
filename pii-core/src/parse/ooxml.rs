@@ -257,6 +257,17 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                     },
                 });
             }
+            for (i, t) in xlsx_hyperlink_texts(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: 20_000 + i,
+                    },
+                });
+            }
         }
         if key == "xl/workbook.xml" || key.ends_with("/workbook.xml") && key.contains("xl/") {
             let xml = String::from_utf8_lossy(data).into_owned();
@@ -926,6 +937,32 @@ pub fn rewrite_xlsx_header_footers(xml: &str, new_texts: &[String]) -> String {
         idx += 1;
     }
     out
+}
+
+/// Cell hyperlink labels live on the tag, not in `<v>` / shared strings.
+pub fn xlsx_hyperlink_texts(xml: &str) -> Vec<String> {
+    let mut out = xml_tagged_attr_values(xml, "hyperlink", "display");
+    out.extend(xml_tagged_attr_values(xml, "hyperlink", "tooltip"));
+    out.extend(xml_tagged_attr_values(xml, "hyperlink", "location"));
+    out
+}
+
+pub fn rewrite_xlsx_hyperlink_texts(xml: &str, new_texts: &[String]) -> String {
+    let n_display = xml_tagged_attr_values(xml, "hyperlink", "display").len();
+    let n_tooltip = xml_tagged_attr_values(xml, "hyperlink", "tooltip").len();
+    let (displays, rest) = if new_texts.len() > n_display {
+        (&new_texts[..n_display], &new_texts[n_display..])
+    } else {
+        (new_texts, &[][..])
+    };
+    let (tooltips, locations) = if rest.len() > n_tooltip {
+        (&rest[..n_tooltip], &rest[n_tooltip..])
+    } else {
+        (rest, &[][..])
+    };
+    let xml = rewrite_tagged_attr_values(xml, "hyperlink", "display", displays);
+    let xml = rewrite_tagged_attr_values(&xml, "hyperlink", "tooltip", tooltips);
+    rewrite_tagged_attr_values(&xml, "hyperlink", "location", locations)
 }
 
 fn xml_tag_inner(xml: &str, tag: &str) -> Option<String> {

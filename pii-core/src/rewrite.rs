@@ -322,13 +322,20 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             rewrite_shared_strings(&xml, texts)
         } else if key.starts_with("xl/worksheets/") {
             let cell_n = crate::parse::ooxml::xlsx_inline_and_values(&xml).len();
-            let (cell_texts, hf_texts) = if texts.len() > cell_n {
+            let hf_n = crate::parse::ooxml::xlsx_header_footer_texts(&xml).len();
+            let (cell_texts, rest) = if texts.len() > cell_n {
                 (&texts[..cell_n], &texts[cell_n..])
             } else {
                 (texts.as_slice(), &[][..])
             };
+            let (hf_texts, link_texts) = if rest.len() > hf_n {
+                (&rest[..hf_n], &rest[hf_n..])
+            } else {
+                (rest, &[][..])
+            };
             let xml = rewrite_sheet_values(&xml, cell_texts);
-            crate::parse::ooxml::rewrite_xlsx_header_footers(&xml, hf_texts)
+            let xml = crate::parse::ooxml::rewrite_xlsx_header_footers(&xml, hf_texts);
+            crate::parse::ooxml::rewrite_xlsx_hyperlink_texts(&xml, link_texts)
         } else if key == "xl/workbook.xml" || key.ends_with("/workbook.xml") {
             let sheet_n = crate::parse::ooxml::xlsx_sheet_name_texts(&xml).len();
             let attr_n = crate::parse::ooxml::xlsx_defined_name_attr_texts(&xml).len();

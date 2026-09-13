@@ -363,6 +363,44 @@ fn pdf_with_named_dest(label: &str) -> Vec<u8> {
     pdf_from_objects(&objects)
 }
 
+fn pdf_with_struct_alt(alt: &str) -> Vec<u8> {
+    let escaped = alt.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let stream = "BT /F1 12 Tf 72 720 Td (visible) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /StructTreeRoot /K 7 0 R >>".to_string(),
+        format!("<< /Type /StructElem /S /Figure /P 6 0 R /Alt ({escaped}) >>"),
+    ];
+    pdf_from_objects(&objects)
+}
+
+fn xlsx_with_hyperlink_display(display: &str, cell: &str) -> Vec<u8> {
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData>
+<hyperlinks><hyperlink ref="A1" r:id="rId1" display="{}" tooltip="메모"/></hyperlinks>
+</worksheet>"#,
+        xml_escape(display)
+    );
+    write_zip(&[
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.into_bytes()),
+    ])
+    .expect("xlsx hyperlink zip")
+}
+
 fn xlsx_with_chart_title(title: &str, cell: &str) -> Vec<u8> {
     let ss = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -2225,6 +2263,46 @@ fn process_file_pdf_named_dest_is_detected() {
     );
     let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
     assert!(!masked.contains(&rrn), "named dest PII left: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_hyperlink_display_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_hyperlink_display(&format!("링크 {rrn}"), "본문만");
+    let out = process_file("link.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "XLSX hyperlink display RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked hyperlink");
+    let again = crate::parse::extract("link.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "hyperlink display left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pdf_struct_alt_is_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_struct_alt(&format!("도표 {rrn}"));
+    let out = process_file("alt.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF struct /Alt RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
+    assert!(!masked.contains(&rrn), "struct alt PII left: {masked}");
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

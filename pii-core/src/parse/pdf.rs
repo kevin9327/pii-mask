@@ -124,6 +124,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             loc: ParaLoc::Pdf { page: 0 },
         });
     }
+    for note in struct_alt_texts(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     if !any_text {
         warnings.push("텍스트 없음 (스캔 PDF이거나 텍스트 레이어가 없습니다. OCR은 지원하지 않습니다).".into());
     }
@@ -514,6 +526,26 @@ fn embedded_filespec_text(doc: &Document) -> Vec<String> {
             continue;
         }
         for key in [b"F".as_slice(), b"UF".as_slice(), b"Desc".as_slice()] {
+            if let Ok(v) = dict.get(key) {
+                if let Some(s) = pdf_obj_string(doc, v) {
+                    if !s.trim().is_empty() {
+                        out.push(s);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Tagged PDF /Alt, /ActualText, and abbreviation /E — not the page stream.
+fn struct_alt_texts(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    for object in doc.objects.values() {
+        let Object::Dictionary(dict) = object else {
+            continue;
+        };
+        for key in [b"Alt".as_slice(), b"ActualText".as_slice(), b"E".as_slice()] {
             if let Ok(v) = dict.get(key) {
                 if let Some(s) = pdf_obj_string(doc, v) {
                     if !s.trim().is_empty() {

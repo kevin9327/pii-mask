@@ -299,6 +299,78 @@ fn xlsx_with_text(text: &str) -> Vec<u8> {
     .expect("xlsx zip")
 }
 
+fn pptx_slide_xml(text: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody>
+<a:p><a:r><a:t>{}</a:t></a:r></a:p>
+</p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>"#,
+        xml_escape(text)
+    )
+}
+
+fn pptx_notes_xml(text: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody>
+<a:p><a:r><a:t>{}</a:t></a:r></a:p>
+</p:txBody></p:sp></p:spTree></p:cSld>
+</p:notes>"#,
+        xml_escape(text)
+    )
+}
+
+fn pptx_with_text(text: &str) -> Vec<u8> {
+    write_zip(&[
+        ("ppt/presentation.xml".into(), b"<p:presentation/>".to_vec()),
+        ("ppt/slides/slide1.xml".into(), pptx_slide_xml(text).into_bytes()),
+    ])
+    .expect("pptx zip")
+}
+
+fn pptx_with_notes_only(notes: &str, slide: &str) -> Vec<u8> {
+    write_zip(&[
+        ("ppt/presentation.xml".into(), b"<p:presentation/>".to_vec()),
+        ("ppt/slides/slide1.xml".into(), pptx_slide_xml(slide).into_bytes()),
+        (
+            "ppt/notesSlides/notesSlide1.xml".into(),
+            pptx_notes_xml(notes).into_bytes(),
+        ),
+    ])
+    .expect("pptx notes zip")
+}
+
+fn xlsx_with_drawing(drawing: &str, cell: &str) -> Vec<u8> {
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    let drawing_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<xdr:twoCellAnchor><xdr:sp><xdr:txBody>
+<a:p><a:r><a:t>{}</a:t></a:r></a:p>
+</xdr:txBody></xdr:sp></xdr:twoCellAnchor>
+</xdr:wsDr>"#,
+        xml_escape(drawing)
+    );
+    write_zip(&[
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+        ("xl/drawings/drawing1.xml".into(), drawing_xml.into_bytes()),
+    ])
+    .expect("xlsx drawing zip")
+}
+
 fn hwpx_with_text(text: &str) -> Vec<u8> {
     let mut doc = Document::new();
     let mut section = Section::default();
@@ -869,6 +941,18 @@ fn every_supported_extension_detects_and_masks_via_process_file() {
         &rrn,
     );
     assert_detect_and_mask(
+        "sample.pptx",
+        &pptx_with_text(&text),
+        crate::FileFormat::Pptx,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.PPTX",
+        &pptx_with_text(&text),
+        crate::FileFormat::Pptx,
+        &rrn,
+    );
+    assert_detect_and_mask(
         "sample.hwpx",
         &hwpx_with_text(&text),
         crate::FileFormat::Hwpx,
@@ -945,8 +1029,8 @@ fn process_file_json_number_mask_stays_parseable() {
 
 #[test]
 fn unknown_zip_is_not_parsed_as_txt() {
-    let pptx_like = write_zip(&[("ppt/slides/slide1.xml".into(), b"<p/>".to_vec())]).unwrap();
-    let out = process_file("deck.pptx", &pptx_like, &cfg(MaskMode::Full, true)).unwrap();
+    let odd = write_zip(&[("foo/bar.xml".into(), b"<p>not office</p>".to_vec())]).unwrap();
+    let out = process_file("pack.zip", &odd, &cfg(MaskMode::Full, true)).unwrap();
     assert_eq!(out.report.format, crate::FileFormat::Unknown);
     assert!(
         out.report.warnings.iter().any(|w| w.contains("지원하지 않는")),
@@ -1335,6 +1419,48 @@ fn process_file_docx_custom_xml_is_masked() {
     let again = crate::parse::extract("cx.docx", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "customXml left raw: {}", again.full_text);
     assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pptx_notes_are_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pptx_with_notes_only(&format!("발표자 메모 {rrn}"), "본문만");
+    let out = process_file("deck.pptx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pptx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PPTX notes RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked pptx");
+    let again = crate::parse::extract("deck.pptx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "notes left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "slide body lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_drawing_textbox_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_drawing(&format!("도형 {rrn}"), "본문만");
+    let out = process_file("box.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "XLSX drawing RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked drawing");
+    let again = crate::parse::extract("box.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "drawing left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

@@ -12,6 +12,7 @@ pub enum FileFormat {
     Pdf,
     Docx,
     Xlsx,
+    Pptx,
     Unknown,
 }
 
@@ -27,6 +28,7 @@ impl FileFormat {
             FileFormat::Pdf => "pdf",
             FileFormat::Docx => "docx",
             FileFormat::Xlsx => "xlsx",
+            FileFormat::Pptx => "pptx",
             FileFormat::Unknown => "unknown",
         }
     }

@@ -250,6 +250,20 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                 });
             }
         }
+        if is_drawingml_text_part(&key) {
+            let xml = String::from_utf8_lossy(data).into_owned();
+            for (i, t) in drawingml_paragraphs(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: i,
+                    },
+                });
+            }
+        }
     }
     push_core_prop_paragraphs(&parts, &mut paragraphs);
     Ok(super::finish(
@@ -261,6 +275,111 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         None,
         Some(parts),
     ))
+}
+
+pub fn extract_pptx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
+    let parts = read_zip(bytes)?;
+    let mut paragraphs = Vec::new();
+    let mut names: Vec<String> = parts
+        .iter()
+        .map(|(n, _)| n.replace('\\', "/"))
+        .filter(|n| is_pptx_text_part(n))
+        .collect();
+    names.sort();
+    names.sort_by_key(|n| {
+        if n.starts_with("ppt/slides/") {
+            0
+        } else if n.starts_with("ppt/notesSlides/") {
+            1
+        } else {
+            2
+        }
+    });
+    for name in names {
+        let Some((_, data)) = parts.iter().find(|(n, _)| n.replace('\\', "/") == name) else {
+            continue;
+        };
+        let xml = String::from_utf8_lossy(data);
+        for (i, t) in drawingml_paragraphs(&xml).into_iter().enumerate() {
+            paragraphs.push(Paragraph {
+                index: paragraphs.len(),
+                text: t,
+                full_byte_start: 0,
+                loc: ParaLoc::ZipXml {
+                    inner_path: name.clone(),
+                    para_ord: i,
+                },
+            });
+        }
+    }
+    push_core_prop_paragraphs(&parts, &mut paragraphs);
+    Ok(super::finish(
+        filename,
+        FileFormat::Pptx,
+        bytes.to_vec(),
+        paragraphs,
+        Vec::new(),
+        None,
+        Some(parts),
+    ))
+}
+
+pub fn is_drawingml_text_part(name: &str) -> bool {
+    let n = name.replace('\\', "/");
+    if n.contains("/_rels/") {
+        return false;
+    }
+    n.ends_with(".xml")
+        && (n.starts_with("ppt/slides/")
+            || n.starts_with("ppt/notesSlides/")
+            || n.starts_with("xl/drawings/"))
+}
+
+fn is_pptx_text_part(name: &str) -> bool {
+    let n = name.replace('\\', "/");
+    if n.contains("/_rels/") {
+        return false;
+    }
+    n.ends_with(".xml") && (n.starts_with("ppt/slides/") || n.starts_with("ppt/notesSlides/"))
+}
+
+/// DrawingML `a:p` runs (`a:t`), used by PPTX slides/notes and XLSX text boxes.
+pub fn drawingml_paragraphs(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(pstart) = find_open(rest, "a:p") {
+        let after = &rest[pstart..];
+        let Some(pend) = after.find("</a:p>") else {
+            break;
+        };
+        out.push(concat_local_t(&after[..pend], "a:t"));
+        rest = &after[pend + 6..];
+    }
+    out
+}
+
+pub fn rewrite_drawingml_paragraphs(xml: &str, new_texts: &[String]) -> String {
+    let mut out = String::new();
+    let mut rest = xml;
+    let mut idx = 0usize;
+    while let Some(pstart) = find_open(rest, "a:p") {
+        out.push_str(&rest[..pstart]);
+        let after = &rest[pstart..];
+        let Some(pend) = after.find("</a:p>") else {
+            out.push_str(after);
+            return out;
+        };
+        let para = &after[..pend + 6];
+        if idx < new_texts.len() {
+            out.push_str(&replace_first_t(para, "a:t", &new_texts[idx]));
+        } else {
+            out.push_str(para);
+        }
+        idx += 1;
+        rest = &after[pend + 6..];
+    }
+    out.push_str(rest);
+    out
 }
 
 pub fn read_zip(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {

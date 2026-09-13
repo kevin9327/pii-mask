@@ -67,7 +67,7 @@ pub fn rewrite(
                 }
             }
         }
-        FileFormat::Docx | FileFormat::Xlsx => match rewrite_zip(extracted, &masked_paras) {
+        FileFormat::Docx | FileFormat::Xlsx | FileFormat::Pptx => match rewrite_zip(extracted, &masked_paras) {
             Ok(bytes) => Ok(RewriteOut {
                 bytes,
                 filename: extracted.filename.clone(),
@@ -317,6 +317,8 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             crate::parse::ooxml::rewrite_xlsx_defined_names(&xml, texts)
         } else if key.starts_with("xl/comments") {
             crate::parse::ooxml::rewrite_xlsx_comments(&xml, texts)
+        } else if crate::parse::ooxml::is_drawingml_text_part(&key) {
+            crate::parse::ooxml::rewrite_drawingml_paragraphs(&xml, texts)
         } else if key.starts_with("docProps/") {
             crate::parse::ooxml::rewrite_core_props(&xml, texts)
         } else {

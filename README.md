@@ -26,9 +26,10 @@
 | `.txt` `.text` `.md` `.log` | 텍스트 | 원 포맷 |
 | `.csv` `.json` | 구조 유지 재작성 (JSON 숫자는 문자열로 감싸 문법을 지킴) | 원 포맷 |
 | `.pdf` | 텍스트 레이어 + **주석/양식 필드** (OCR 없음) | TXT 대체 + 명시 |
-| `.docx` `.xlsx` | ZIP + XML 직접 파싱 | 원 포맷 |
+| `.docx` `.docm` `.xlsx` `.xlsm` | ZIP + XML 직접 파싱 | 원 포맷 |
+| `.pptx` `.pptm` `.potx` | DrawingML `a:t` (슬라이드·노트) | 원 포맷 |
 
-스캔 PDF는 **텍스트 없음**으로 리포트합니다. 본문 스트림에 없어도 주석(`/Contents`)과 AcroForm 필드(`/V`)에 남은 주민번호는 `process_file`이 같은 규칙으로 잡습니다. 머리글·바닥글로 쓰는 **Form XObject** 텍스트와 엑셀 **셀 메모**(`xl/comments1.xml`)도 같은 엔진입니다. 엑셀 **인쇄 머리글/바닥글**(`oddHeader`)과 PDF **문서 정보 사전**(`/Info` Title·Subject·Author 등)은 미리보기 본문과 별도라서 따로 읽습니다. HWP **PrvText**(탐색기 미리보기 스트림)와 OOXML **docProps/core.xml**(설명·작성자)도 본문이 깨끗해도 남을 수 있어 같은 `process_file`이 스캔합니다. 엑셀 **정의된 이름**(`definedName`)과 PDF **책갈피 제목**(`/Outlines` `/Title`)도 셀·페이지가 비어 있어도 파일 안에 원문이 있어 같은 엔진이 잡습니다. CSV는 RFC 4180처럼 **따옴표 안 줄바꿈**을 한 행으로 보고 필드를 깨지 않습니다. 워드 **콘텐츠 컨트롤**이 묶는 `customXml/item*.xml`도 본문 `w:t`와 따로 스캔합니다. PPTX 등 알 수 없는 ZIP은 지원하지 않는다고 알리고 원본을 유지합니다.
+스캔 PDF는 **텍스트 없음**으로 리포트합니다. 본문 스트림에 없어도 주석(`/Contents`)과 AcroForm 필드(`/V`)에 남은 주민번호는 `process_file`이 같은 규칙으로 잡습니다. 머리글·바닥글로 쓰는 **Form XObject** 텍스트와 엑셀 **셀 메모**(`xl/comments1.xml`)도 같은 엔진입니다. 엑셀 **인쇄 머리글/바닥글**(`oddHeader`)과 PDF **문서 정보 사전**(`/Info` Title·Subject·Author 등)은 미리보기 본문과 별도라서 따로 읽습니다. HWP **PrvText**(탐색기 미리보기 스트림)와 OOXML **docProps/core.xml**(설명·작성자)도 본문이 깨끗해도 남을 수 있어 같은 `process_file`이 스캔합니다. 엑셀 **정의된 이름**(`definedName`)과 PDF **책갈피 제목**(`/Outlines` `/Title`)도 셀·페이지가 비어 있어도 파일 안에 원문이 있어 같은 엔진이 잡습니다. CSV는 RFC 4180처럼 **따옴표 안 줄바꿈**을 한 행으로 보고 필드를 깨지 않습니다. 워드 **콘텐츠 컨트롤**이 묶는 `customXml/item*.xml`도 본문 `w:t`와 따로 스캔합니다. 파워포인트 **슬라이드·발표자 노트**(`a:t`)와 엑셀 **도형 텍스트 상자**(`xl/drawings`)도 셀/본문이 비어 있어도 같은 `process_file`이 잡습니다. 매크로/템플릿 확장자(`.docm` `.xlsm` `.pptm`)는 같은 ZIP 엔진입니다. ODS 등 알 수 없는 ZIP은 지원하지 않는다고 알리고 원본을 유지합니다.
 
 ![PDF 콘텐츠 스트림 · 주석 · 양식 · 스캔](docs/pdf-layers.svg)
 
@@ -41,6 +42,8 @@
 ![엑셀 정의된 이름과 PDF 책갈피](docs/named-ranges.svg)
 
 ![CSV 여러 줄 필드와 DOCX customXml](docs/structured-text.svg)
+
+![PPTX 노트와 엑셀 도형 텍스트](docs/slide-drawings.svg)
 
 ## 탐지와 마스킹
 

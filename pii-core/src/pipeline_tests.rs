@@ -131,6 +131,25 @@ fn hwp5_with_table_cell(cell: &str) -> Vec<u8> {
     docagent_hwp5::write(&doc).expect("hwp5 table write")
 }
 
+fn xlsx_numeric_cell(value: &str) -> Vec<u8> {
+    let sheet = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1"><v>{}</v></c></row></sheetData></worksheet>"#,
+        xml_escape(value)
+    );
+    write_zip(&[
+        ("xl/worksheets/sheet1.xml".into(), sheet.into_bytes()),
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+    ])
+    .expect("xlsx numeric zip")
+}
+
+fn euckr_bytes(text: &str) -> Vec<u8> {
+    let (cow, _, _) = encoding_rs::EUC_KR.encode(text);
+    cow.into_owned()
+}
+
 fn utf16le_bytes(text: &str) -> Vec<u8> {
     let mut out = vec![0xFF, 0xFE];
     out.extend(text.encode_utf16().flat_map(|u| u.to_le_bytes()));
@@ -753,6 +772,86 @@ fn process_file_quoted_csv_masks_field() {
     assert!(masked.starts_with("name,rrn"), "csv header lost: {masked}");
     assert!(!masked.contains(&rrn), "quoted csv still has raw: {masked}");
     assert!(masked.contains('\"'), "quotes dropped: {masked}");
+}
+
+#[test]
+fn process_file_xlsx_numeric_cell_card_is_masked() {
+    let card = card_string();
+    let digits: String = card.chars().filter(|c| c.is_ascii_digit()).collect();
+    let bytes = xlsx_numeric_cell(&digits);
+    let out = process_file("num.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.rule_id == "credit_card" && f.raw == digits && f.confidence == Confidence::Confirmed),
+        "numeric cell card missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked xlsx");
+    let again = crate::parse::extract("num.xlsx", &masked).unwrap();
+    assert!(
+        !again.full_text.contains(&digits),
+        "numeric cell rewrite left raw: {}",
+        again.full_text
+    );
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_json_replace_keeps_object_and_csv_residual_column() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let json = format!(r#"{{"rrn":"{rrn}","n":1}}"#);
+    let out = process_file("r.json", json.as_bytes(), &cfg(MaskMode::Replace, true)).unwrap();
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "json string RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("masked json")).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&masked).unwrap_or_else(|e| panic!("replace JSON parse: {e} {masked}"));
+    assert_eq!(v["rrn"], "[주민번호]");
+    assert_eq!(v["n"], 1);
+    assert_eq!(out.report.residual_confirmed, 0);
+    let csv = csv_report(&[out.report.clone()]);
+    assert!(
+        csv.contains("residual_confirmed"),
+        "csv header missing residual: {csv}"
+    );
+    assert!(csv.contains("r.json"));
+}
+
+#[test]
+fn process_file_euckr_txt_roundtrip_and_html_residual() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let src = format!("계약 {rrn}");
+    let bytes = euckr_bytes(&src);
+    assert_ne!(&bytes[..2], &[0xEF, 0xBB], "fixture must not be utf-8 bom");
+    let out = process_file("kr.txt", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "euc-kr RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked euc-kr");
+    let (text, _, enc) = crate::parse::text::decode(&masked);
+    assert_eq!(enc, crate::types::TextEncoding::EucKr);
+    assert!(!text.contains(&rrn), "euc-kr masked still has raw: {text}");
+    assert_eq!(out.report.residual_confirmed, 0);
+    let html = html_report(&[out.report.clone()]);
+    assert!(
+        html.contains("잔여 확정 0"),
+        "html report must show residual from process_file: {html}"
+    );
+    assert!(html.contains("kr.txt"));
 }
 
 fn docx_with_header_only(header: &str, body: &str) -> Vec<u8> {

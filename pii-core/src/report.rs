@@ -42,18 +42,22 @@ pub fn summaries(findings: &[crate::types::Finding]) -> Vec<TypeSummary> {
 }
 
 pub fn csv_report(reports: &[FileReport]) -> String {
-    let mut out = String::from("filename,type,label,count,confirmed,suspicious,already_masked,preview\n");
+    let mut out = String::from(
+        "filename,type,label,count,confirmed,suspicious,already_masked,residual_confirmed,residual_suspicious,preview\n",
+    );
     for r in reports {
         if r.summaries.is_empty() {
             out.push_str(&format!(
-                "{},,,,0,0,0,0,\n",
-                csv_escape(&r.filename)
+                "{},,,,0,0,0,0,{},{},\n",
+                csv_escape(&r.filename),
+                r.residual_confirmed,
+                r.residual_suspicious
             ));
             continue;
         }
         for s in &r.summaries {
             out.push_str(&format!(
-                "{},{},{},{},{},{},{},{}\n",
+                "{},{},{},{},{},{},{},{},{},{}\n",
                 csv_escape(&r.filename),
                 csv_escape(&s.rule_id),
                 csv_escape(&s.label),
@@ -61,6 +65,8 @@ pub fn csv_report(reports: &[FileReport]) -> String {
                 s.confirmed,
                 s.suspicious,
                 s.already_masked,
+                r.residual_confirmed,
+                r.residual_suspicious,
                 csv_escape(&s.preview)
             ));
         }
@@ -90,6 +96,10 @@ pub fn html_report(reports: &[FileReport]) -> String {
             "<h2>{} <small>{}</small></h2>",
             esc(&r.filename),
             r.format.as_str()
+        ));
+        body.push_str(&format!(
+            "<p>잔여 확정 {} · 잔여 의심 {} (마스킹본을 같은 엔진으로 재스캔)</p>",
+            r.residual_confirmed, r.residual_suspicious
         ));
         if !r.warnings.is_empty() {
             body.push_str("<ul class=\"warn\">");

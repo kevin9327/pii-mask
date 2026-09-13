@@ -250,6 +250,20 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                 });
             }
         }
+        if key.starts_with("xl/pivotCache/") && key.ends_with(".xml") && !key.contains("_rels") {
+            let xml = String::from_utf8_lossy(data).into_owned();
+            for (i, t) in pivot_cache_strings(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: i,
+                    },
+                });
+            }
+        }
         if is_drawingml_text_part(&key) {
             let xml = String::from_utf8_lossy(data).into_owned();
             for (i, t) in drawingml_paragraphs(&xml).into_iter().enumerate() {
@@ -300,7 +314,12 @@ pub fn extract_pptx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             continue;
         };
         let xml = String::from_utf8_lossy(data);
-        for (i, t) in drawingml_paragraphs(&xml).into_iter().enumerate() {
+        let texts = if name.starts_with("ppt/comments") {
+            xml_text_nodes(&xml)
+        } else {
+            drawingml_paragraphs(&xml)
+        };
+        for (i, t) in texts.into_iter().enumerate() {
             paragraphs.push(Paragraph {
                 index: paragraphs.len(),
                 text: t,
@@ -384,7 +403,10 @@ fn is_pptx_text_part(name: &str) -> bool {
     if n.contains("/_rels/") {
         return false;
     }
-    n.ends_with(".xml") && (n.starts_with("ppt/slides/") || n.starts_with("ppt/notesSlides/"))
+    n.ends_with(".xml")
+        && (n.starts_with("ppt/slides/")
+            || n.starts_with("ppt/notesSlides/")
+            || n.starts_with("ppt/comments"))
 }
 
 /// DrawingML `a:p` runs (`a:t`), used by PPTX slides/notes and XLSX text boxes.
@@ -400,6 +422,89 @@ pub fn drawingml_paragraphs(xml: &str) -> Vec<String> {
         rest = &after[pend + 6..];
     }
     out
+}
+
+pub fn pivot_cache_strings(xml: &str) -> Vec<String> {
+    xml_tagged_attr_values(xml, "s", "v")
+}
+
+pub fn rewrite_pivot_cache_strings(xml: &str, new_texts: &[String]) -> String {
+    rewrite_tagged_attr_values(xml, "s", "v", new_texts)
+}
+
+fn xml_tagged_attr_values(xml: &str, tag: &str, attr: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(s) = find_open(rest, tag) {
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            break;
+        };
+        if let Some(v) = attr_value(&after[..=gt], attr) {
+            if !v.trim().is_empty() {
+                out.push(xml_unescape(&v));
+            }
+        }
+        rest = &after[gt + 1..];
+    }
+    out
+}
+
+fn rewrite_tagged_attr_values(xml: &str, tag: &str, attr: &str, new_texts: &[String]) -> String {
+    let mut out = String::new();
+    let mut rest = xml;
+    let mut idx = 0usize;
+    while let Some(s) = find_open(rest, tag) {
+        out.push_str(&rest[..s]);
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            out.push_str(after);
+            return out;
+        };
+        let open = &after[..=gt];
+        if idx < new_texts.len() && attr_value(open, attr).map(|v| !v.trim().is_empty()).unwrap_or(false)
+        {
+            out.push_str(&replace_attr(open, attr, &new_texts[idx]));
+            idx += 1;
+        } else {
+            out.push_str(open);
+        }
+        rest = &after[gt + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn attr_value(open: &str, attr: &str) -> Option<String> {
+    for q in ['"', '\''] {
+        let needle = format!("{attr}={q}");
+        if let Some(i) = open.find(&needle) {
+            let rest = &open[i + needle.len()..];
+            if let Some(e) = rest.find(q) {
+                return Some(rest[..e].to_string());
+            }
+        }
+    }
+    None
+}
+
+fn replace_attr(open: &str, attr: &str, new_text: &str) -> String {
+    for q in ['"', '\''] {
+        let needle = format!("{attr}={q}");
+        if let Some(i) = open.find(&needle) {
+            let rest = &open[i + needle.len()..];
+            if let Some(e) = rest.find(q) {
+                let mut out = String::new();
+                out.push_str(&open[..i]);
+                out.push_str(&needle);
+                out.push_str(&xml_escape(new_text));
+                out.push(q);
+                out.push_str(&rest[e + 1..]);
+                return out;
+            }
+        }
+    }
+    open.to_string()
 }
 
 pub fn rewrite_drawingml_paragraphs(xml: &str, new_texts: &[String]) -> String {

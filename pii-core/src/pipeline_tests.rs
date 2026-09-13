@@ -429,6 +429,51 @@ fn ods_with_text(text: &str) -> Vec<u8> {
     .expect("ods zip")
 }
 
+fn pptx_with_comment_only(comment: &str, slide: &str) -> Vec<u8> {
+    let comments = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cm authorId="0" dt="2024-01-01T00:00:00"><p:text>{}</p:text></p:cm>
+</p:cmLst>"#,
+        xml_escape(comment)
+    );
+    write_zip(&[
+        ("ppt/presentation.xml".into(), b"<p:presentation/>".to_vec()),
+        ("ppt/slides/slide1.xml".into(), pptx_slide_xml(slide).into_bytes()),
+        ("ppt/comments/comment1.xml".into(), comments.into_bytes()),
+    ])
+    .expect("pptx comments zip")
+}
+
+fn xlsx_with_pivot_cache(value: &str, cell: &str) -> Vec<u8> {
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    let cache = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheRecords xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1">
+<r><s v="{}"/><n v="1"/></r>
+</pivotCacheRecords>"#,
+        xml_escape(value)
+    );
+    write_zip(&[
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+        (
+            "xl/pivotCache/pivotCacheRecords1.xml".into(),
+            cache.into_bytes(),
+        ),
+    ])
+    .expect("xlsx pivot zip")
+}
+
 fn pptx_with_notes_only(notes: &str, slide: &str) -> Vec<u8> {
     write_zip(&[
         ("ppt/presentation.xml".into(), b"<p:presentation/>".to_vec()),
@@ -1651,6 +1696,48 @@ fn process_file_ods_cell_text_is_masked() {
     let masked = out.masked_bytes.expect("masked ods");
     let again = crate::parse::extract("grid.ods", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "ods left raw: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pptx_comment_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pptx_with_comment_only(&format!("검토 {rrn}"), "본문만");
+    let out = process_file("notes.pptx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pptx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PPTX comment RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked pptx comment");
+    let again = crate::parse::extract("notes.pptx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "comment left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "slide lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_pivot_cache_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_pivot_cache(&rrn, "본문만");
+    let out = process_file("pivot.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "pivot cache RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked pivot");
+    let again = crate::parse::extract("pivot.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "pivot left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

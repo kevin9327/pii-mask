@@ -304,6 +304,8 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             rewrite_shared_strings(&xml, texts)
         } else if key.starts_with("xl/worksheets/") {
             rewrite_sheet_values(&xml, texts)
+        } else if key.starts_with("xl/comments") {
+            crate::parse::ooxml::rewrite_xlsx_comments(&xml, texts)
         } else {
             xml
         };

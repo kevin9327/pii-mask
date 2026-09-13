@@ -28,9 +28,11 @@
 | `.pdf` | 텍스트 레이어 + **주석/양식 필드** (OCR 없음) | TXT 대체 + 명시 |
 | `.docx` `.xlsx` | ZIP + XML 직접 파싱 | 원 포맷 |
 
-스캔 PDF는 **텍스트 없음**으로 리포트합니다. 본문 스트림에 없어도 주석(`/Contents`)과 AcroForm 필드(`/V`)에 남은 주민번호는 `process_file`이 같은 규칙으로 잡습니다. PPTX 등 알 수 없는 ZIP은 지원하지 않는다고 알리고 원본을 유지합니다.
+스캔 PDF는 **텍스트 없음**으로 리포트합니다. 본문 스트림에 없어도 주석(`/Contents`)과 AcroForm 필드(`/V`)에 남은 주민번호는 `process_file`이 같은 규칙으로 잡습니다. 머리글·바닥글로 쓰는 **Form XObject** 텍스트와 엑셀 **셀 메모**(`xl/comments1.xml`)도 같은 엔진입니다. PPTX 등 알 수 없는 ZIP은 지원하지 않는다고 알리고 원본을 유지합니다.
 
 ![PDF 콘텐츠 스트림 · 주석 · 양식 · 스캔](docs/pdf-layers.svg)
+
+![화면 밖 스트림: XObject · 엑셀 메모 · 주석](docs/hidden-surfaces.svg)
 
 ## 탐지와 마스킹
 

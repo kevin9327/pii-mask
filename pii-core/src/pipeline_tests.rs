@@ -85,6 +85,65 @@ fn empty_pdf() -> Vec<u8> {
     pdf_with_text("")
 }
 
+fn pdf_with_form_xobject(page_text: &str, header: &str) -> Vec<u8> {
+    let escaped_page = page_text
+        .replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)");
+    let escaped_header = header
+        .replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)");
+    let page_stream = format!("q /Fm1 Do Q BT /F1 12 Tf 72 400 Td ({escaped_page}) Tj ET");
+    let form_stream = format!("BT /F1 10 Tf 0 8 Td ({escaped_header}) Tj ET");
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> /XObject << /Fm1 6 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{page_stream}\nendstream", page_stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 400 24] /Resources << /Font << /F1 5 0 R >> >> /Length {} >>\nstream\n{form_stream}\nendstream",
+            form_stream.len()
+        ),
+    ];
+    let mut body = String::from("%PDF-1.4\n");
+    let mut offsets = vec![0u32];
+    for (i, obj) in objects.iter().enumerate() {
+        offsets.push(body.len() as u32);
+        body.push_str(&format!("{} 0 obj\n{obj}\nendobj\n", i + 1));
+    }
+    let xref_at = body.len();
+    body.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
+    body.push_str("0000000000 65535 f \n");
+    for off in offsets.iter().skip(1) {
+        body.push_str(&format!("{off:010} 00000 n \n"));
+    }
+    body.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    body.into_bytes()
+}
+
+fn xlsx_with_comment(comment: &str) -> Vec<u8> {
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#;
+    let comments = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<commentList><comment ref="A1"><text><t>{}</t></text></comment></commentList></comments>"#,
+        xml_escape(comment)
+    );
+    write_zip(&[
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+        ("xl/comments1.xml".into(), comments.into_bytes()),
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+    ])
+    .expect("xlsx comments zip")
+}
+
 fn pdf_with_annotation(body: &str, note: &str) -> Vec<u8> {
     let escaped_body = body.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
     let escaped_note = note.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
@@ -905,6 +964,46 @@ fn process_file_pdf_annotation_contents_are_detected() {
     let masked = String::from_utf8(out.masked_bytes.expect("pdf txt fallback")).unwrap();
     assert!(!masked.contains(&rrn), "annotation PII left in fallback: {masked}");
     assert!(masked.contains("공개 본문"), "visible body lost: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pdf_form_xobject_header_is_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_form_xobject("페이지 본문", &format!("머리글 {rrn}"));
+    let out = process_file("xf.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF XObject header RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
+    assert!(!masked.contains(&rrn), "xobject PII left: {masked}");
+    assert!(masked.contains("페이지 본문"), "page body lost: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_comment_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_comment(&format!("메모 {rrn}"));
+    let out = process_file("memo.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "xlsx comment RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked xlsx comment");
+    let again = crate::parse::extract("memo.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "comment left raw: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

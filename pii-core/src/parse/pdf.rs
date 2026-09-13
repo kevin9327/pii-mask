@@ -25,6 +25,20 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                 loc: ParaLoc::Pdf { page: page_num },
             });
         }
+        for xo in page_xobject_texts(&doc, page_id) {
+            if xo.trim().is_empty() {
+                continue;
+            }
+            any_text = true;
+            for line in xo.split('\n') {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: line.to_string(),
+                    full_byte_start: 0,
+                    loc: ParaLoc::Pdf { page: page_num },
+                });
+            }
+        }
     }
     for note in annotation_and_field_text(&doc) {
         if note.trim().is_empty() {
@@ -56,7 +70,69 @@ fn page_text(doc: &Document, page_id: lopdf::ObjectId) -> Result<String> {
     let data = doc
         .get_page_content(page_id)
         .map_err(|e| Error::Parse(e.to_string()))?;
-    let content = lopdf::content::Content::decode(&data).map_err(|e| Error::Parse(e.to_string()))?;
+    content_stream_text(&data)
+}
+
+/// Header/footer graphics are often Form XObjects, not the page stream.
+fn page_xobject_texts(doc: &Document, page_id: lopdf::ObjectId) -> Vec<String> {
+    let Ok(page) = doc.get_object(page_id) else {
+        return Vec::new();
+    };
+    let Ok(dict) = page.as_dict() else {
+        return Vec::new();
+    };
+    let Ok(res_obj) = dict.get(b"Resources") else {
+        return Vec::new();
+    };
+    let Some(res) = resolve_obj(doc, res_obj) else {
+        return Vec::new();
+    };
+    let Object::Dictionary(res_dict) = res else {
+        return Vec::new();
+    };
+    let Ok(xo) = res_dict.get(b"XObject") else {
+        return Vec::new();
+    };
+    let Some(xo) = resolve_obj(doc, xo) else {
+        return Vec::new();
+    };
+    let Object::Dictionary(xo_dict) = xo else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (_name, obj) in xo_dict.iter() {
+        if let Some(text) = form_xobject_text(doc, obj) {
+            if !text.trim().is_empty() {
+                out.push(text);
+            }
+        }
+    }
+    out
+}
+
+fn form_xobject_text(doc: &Document, obj: &Object) -> Option<String> {
+    let resolved = resolve_obj(doc, obj)?;
+    let Object::Stream(stream) = resolved else {
+        return None;
+    };
+    let subtype = stream.dict.get(b"Subtype").ok().and_then(object_name)?;
+    if subtype != "Form" {
+        return None;
+    }
+    let mut stream = stream.clone();
+    let _ = stream.decompress();
+    content_stream_text(&stream.content).ok()
+}
+
+fn resolve_obj<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Object> {
+    match obj {
+        Object::Reference(id) => doc.get_object(*id).ok(),
+        other => Some(other),
+    }
+}
+
+fn content_stream_text(data: &[u8]) -> Result<String> {
+    let content = lopdf::content::Content::decode(data).map_err(|e| Error::Parse(e.to_string()))?;
     let mut out = String::new();
     for op in content.operations {
         match op.operator.as_str() {

@@ -67,9 +67,24 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         }
     }
     for (name, data) in &parts {
-        if name.starts_with("xl/worksheets/") && name.ends_with(".xml") {
+        let key = name.replace('\\', "/");
+        if key.starts_with("xl/worksheets/") && key.ends_with(".xml") {
             let xml = String::from_utf8_lossy(data).into_owned();
             for (i, t) in xlsx_inline_and_values(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: i,
+                    },
+                });
+            }
+        }
+        if key.starts_with("xl/comments") && key.ends_with(".xml") {
+            let xml = String::from_utf8_lossy(data).into_owned();
+            for (i, t) in xlsx_comment_texts(&xml).into_iter().enumerate() {
                 paragraphs.push(Paragraph {
                     index: paragraphs.len(),
                     text: t,
@@ -181,6 +196,44 @@ pub fn rewrite_docx_paragraphs(xml: &str, new_texts: &[String]) -> String {
         }
         idx += 1;
         rest = &after[pend + 6..];
+    }
+    out.push_str(rest);
+    out
+}
+
+pub fn xlsx_comment_texts(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(s) = rest.find("<comment") {
+        let after = &rest[s..];
+        let Some(e) = after.find("</comment>") else {
+            break;
+        };
+        out.push(concat_local_t(&after[..e], "t"));
+        rest = &after[e + 10..];
+    }
+    out
+}
+
+pub fn rewrite_xlsx_comments(xml: &str, new_texts: &[String]) -> String {
+    let mut out = String::new();
+    let mut rest = xml;
+    let mut idx = 0usize;
+    while let Some(s) = rest.find("<comment") {
+        out.push_str(&rest[..s]);
+        let after = &rest[s..];
+        let Some(e) = after.find("</comment>") else {
+            out.push_str(after);
+            return out;
+        };
+        let block = &after[..e + 10];
+        if idx < new_texts.len() {
+            out.push_str(&replace_first_t(block, "t", &new_texts[idx]));
+        } else {
+            out.push_str(block);
+        }
+        idx += 1;
+        rest = &after[e + 10..];
     }
     out.push_str(rest);
     out
@@ -423,26 +476,16 @@ fn empty_later_t(block: &str, local: &str, keep_inner_start: usize) -> String {
 }
 
 fn find_open(xml: &str, local: &str) -> Option<usize> {
-    let a = format!("<{local}");
-    let b = format!("<{local} ");
-    let c = format!("<{local}>");
-    let mut best = None;
-    for pat in [&a, &b, &c] {
-        if let Some(i) = xml.find(pat.as_str()) {
-            let ok = xml[i + pat.len().saturating_sub(0)..]
-                .chars()
-                .next()
-                .map(|ch| ch == ' ' || ch == '>' || ch == '/')
-                .unwrap_or(true);
-            // `<t` should not match `<tr` or `<tbl`
-            let after = i + 1 + local.len();
-            let boundary = xml.as_bytes().get(after).copied().unwrap_or(b'>');
-            let is_boundary = matches!(boundary, b' ' | b'>' | b'/' | b'\n' | b'\r' | b'\t');
-            if is_boundary && ok {
-                best = Some(best.map_or(i, |b: usize| b.min(i)));
-            }
+    let needle = format!("<{local}");
+    let mut start = 0usize;
+    while let Some(rel) = xml[start..].find(&needle) {
+        let i = start + rel;
+        let after = i + needle.len();
+        let boundary = xml.as_bytes().get(after).copied().unwrap_or(b'>');
+        if matches!(boundary, b' ' | b'>' | b'/' | b'\n' | b'\r' | b'\t') {
+            return Some(i);
         }
+        start = i + 1;
     }
-    // Also prefixed: ignore, we search local with optional prefix already in `local` ("w:t").
-    best
+    None
 }

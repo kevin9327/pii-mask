@@ -331,13 +331,20 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             crate::parse::ooxml::rewrite_xlsx_header_footers(&xml, hf_texts)
         } else if key == "xl/workbook.xml" || key.ends_with("/workbook.xml") {
             let sheet_n = crate::parse::ooxml::xlsx_sheet_name_texts(&xml).len();
-            let (sheet_texts, name_texts) = if texts.len() > sheet_n {
+            let attr_n = crate::parse::ooxml::xlsx_defined_name_attr_texts(&xml).len();
+            let (sheet_texts, rest) = if texts.len() > sheet_n {
                 (&texts[..sheet_n], &texts[sheet_n..])
             } else {
                 (texts.as_slice(), &[][..])
             };
+            let (attr_texts, inner_texts) = if rest.len() > attr_n {
+                (&rest[..attr_n], &rest[attr_n..])
+            } else {
+                (rest, &[][..])
+            };
             let xml = crate::parse::ooxml::rewrite_xlsx_sheet_names(&xml, sheet_texts);
-            crate::parse::ooxml::rewrite_xlsx_defined_names(&xml, name_texts)
+            let xml = crate::parse::ooxml::rewrite_xlsx_defined_name_attrs(&xml, attr_texts);
+            crate::parse::ooxml::rewrite_xlsx_defined_names(&xml, inner_texts)
         } else if key.starts_with("xl/connections") {
             crate::parse::ooxml::rewrite_xlsx_connection_texts(&xml, texts)
         } else if key.starts_with("xl/comments") {

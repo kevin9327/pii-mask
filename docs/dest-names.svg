@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="320" viewBox="0 0 1040 320" role="img">
+  <rect width="1040" height="320" fill="#0e141b"/>
+  <text x="36" y="38" fill="#e8eef6" font-family="sans-serif" font-size="20" font-weight="700">이름표가 좌표보다 먼저 샌다</text>
+  <text x="36" y="62" fill="#93a0b0" font-family="sans-serif" font-size="13">정의된 이름 name 속성과 PDF Dests 문자열은 셀/페이지 본문이 아니라도 원문이 있습니다. 서버 전송 없음.</text>
+  <rect x="36" y="88" width="470" height="96" rx="12" fill="#151c25" stroke="#3db8a0"/>
+  <text x="271" y="128" text-anchor="middle" fill="#3db8a0" font-family="sans-serif" font-size="15">XLSX definedName name</text>
+  <text x="271" y="154" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">수식이 아닌 이름 레이블</text>
+  <rect x="534" y="88" width="470" height="96" rx="12" fill="#151c25" stroke="#e8b849"/>
+  <text x="769" y="128" text-anchor="middle" fill="#e8b849" font-family="sans-serif" font-size="15">PDF /Names /Dests</text>
+  <text x="769" y="154" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">이름 트리 목적지 문자열</text>
+  <rect x="36" y="208" width="968" height="84" rx="12" fill="#16324d" stroke="#3db8a0"/>
+  <text x="520" y="246" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="15">process_file이 같은 검증식으로 이름표·목적지를 스캔합니다. 서버 전송 없음.</text>
+  <text x="520" y="272" text-anchor="middle" fill="#c5e8d4" font-family="sans-serif" font-size="13">엑셀은 name 속성을 제자리 치환하고, PDF는 TXT 대체 출력에 목적지 이름을 포함합니다.</text>
+</svg>

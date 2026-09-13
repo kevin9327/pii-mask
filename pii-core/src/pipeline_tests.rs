@@ -205,6 +205,32 @@ fn xlsx_with_defined_name(formula: &str) -> Vec<u8> {
     .expect("xlsx definedName zip")
 }
 
+fn xlsx_with_defined_name_attr(name: &str, cell: &str) -> Vec<u8> {
+    let wb = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></sheets>
+<definedNames><definedName name="{}">Sheet1!A1</definedName></definedNames>
+</workbook>"#,
+        xml_escape(name)
+    );
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    write_zip(&[
+        ("xl/workbook.xml".into(), wb.into_bytes()),
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+    ])
+    .expect("xlsx definedName attr zip")
+}
+
 fn xlsx_with_sheet_name(name: &str, cell: &str) -> Vec<u8> {
     let wb = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -317,6 +343,22 @@ fn pdf_with_uri_action(uri: &str) -> Vec<u8> {
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
         "<< /Type /Annot /Subtype /Link /Rect [0 0 100 20] /A 7 0 R >>".to_string(),
         format!("<< /S /URI /URI ({escaped}) >>"),
+    ];
+    pdf_from_objects(&objects)
+}
+
+fn pdf_with_named_dest(label: &str) -> Vec<u8> {
+    let escaped = label.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let stream = "BT /F1 12 Tf 72 720 Td (visible) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /Names 6 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Dests 7 0 R >>".to_string(),
+        format!("<< /Names [({escaped}) 8 0 R] >>"),
+        "<< /D [3 0 R /Fit] >>".to_string(),
     ];
     pdf_from_objects(&objects)
 }
@@ -2143,6 +2185,46 @@ fn process_file_xlsx_connection_name_is_masked() {
     let again = crate::parse::extract("conn.xlsx", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "connection left raw: {}", again.full_text);
     assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_defined_name_attr_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_defined_name_attr(&format!("범위{rrn}"), "본문만");
+    let out = process_file("nattr.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "definedName name attr RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked name attr");
+    let again = crate::parse::extract("nattr.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "name attr left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pdf_named_dest_is_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_named_dest(&format!("점프 {rrn}"));
+    let out = process_file("dest.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF named dest RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
+    assert!(!masked.contains(&rrn), "named dest PII left: {masked}");
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

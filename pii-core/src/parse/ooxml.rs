@@ -272,7 +272,7 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                 });
             }
             let sheet_n = xlsx_sheet_name_texts(&xml).len();
-            for (i, t) in xlsx_defined_name_texts(&xml).into_iter().enumerate() {
+            for (i, t) in xlsx_defined_name_attr_texts(&xml).into_iter().enumerate() {
                 paragraphs.push(Paragraph {
                     index: paragraphs.len(),
                     text: t,
@@ -280,6 +280,18 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                     loc: ParaLoc::ZipXml {
                         inner_path: name.clone(),
                         para_ord: sheet_n + i,
+                    },
+                });
+            }
+            let attr_n = xlsx_defined_name_attr_texts(&xml).len();
+            for (i, t) in xlsx_defined_name_texts(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: sheet_n + attr_n + i,
                     },
                 });
             }
@@ -985,6 +997,14 @@ pub fn rewrite_xlsx_connection_texts(xml: &str, new_texts: &[String]) -> String 
     let xml = rewrite_tagged_attr_values(xml, "connection", "name", names);
     let xml = rewrite_tagged_attr_values(&xml, "connection", "description", descs);
     rewrite_tagged_attr_values(&xml, "dbPr", "connection", conns)
+}
+
+pub fn xlsx_defined_name_attr_texts(xml: &str) -> Vec<String> {
+    xml_tagged_attr_values(xml, "definedName", "name")
+}
+
+pub fn rewrite_xlsx_defined_name_attrs(xml: &str, new_texts: &[String]) -> String {
+    rewrite_tagged_attr_values(xml, "definedName", "name", new_texts)
 }
 
 pub fn xlsx_defined_name_texts(xml: &str) -> Vec<String> {

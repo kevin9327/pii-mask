@@ -112,6 +112,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             loc: ParaLoc::Pdf { page: 0 },
         });
     }
+    for note in named_dest_texts(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     if !any_text {
         warnings.push("텍스트 없음 (스캔 PDF이거나 텍스트 레이어가 없습니다. OCR은 지원하지 않습니다).".into());
     }
@@ -260,6 +272,78 @@ fn document_info_text(doc: &Document) -> Vec<String> {
         }
     }
     out
+}
+
+fn named_dest_texts(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(root) = doc.trailer.get(b"Root") else {
+        return out;
+    };
+    let Some(catalog) = resolve_obj(doc, root) else {
+        return out;
+    };
+    let Object::Dictionary(dict) = catalog else {
+        return out;
+    };
+    if let Ok(dests) = dict.get(b"Dests") {
+        collect_dest_dict_keys(doc, dests, &mut out);
+    }
+    if let Ok(names) = dict.get(b"Names") {
+        if let Some(Object::Dictionary(names_dict)) = resolve_obj(doc, names) {
+            if let Ok(dests) = names_dict.get(b"Dests") {
+                walk_name_tree(doc, dests, &mut out, 0);
+            }
+        }
+    }
+    out
+}
+
+fn collect_dest_dict_keys(doc: &Document, obj: &Object, out: &mut Vec<String>) {
+    let Some(resolved) = resolve_obj(doc, obj) else {
+        return;
+    };
+    let Object::Dictionary(dict) = resolved else {
+        return;
+    };
+    for (key, _) in dict.iter() {
+        if let Ok(s) = std::str::from_utf8(key) {
+            if !s.trim().is_empty() {
+                out.push(s.to_string());
+            }
+        }
+    }
+}
+
+fn walk_name_tree(doc: &Document, obj: &Object, out: &mut Vec<String>, depth: usize) {
+    if depth > 16 {
+        return;
+    }
+    let Some(resolved) = resolve_obj(doc, obj) else {
+        return;
+    };
+    let Object::Dictionary(dict) = resolved else {
+        return;
+    };
+    if let Ok(names) = dict.get(b"Names") {
+        if let Some(Object::Array(arr)) = resolve_obj(doc, names) {
+            for (i, item) in arr.iter().enumerate() {
+                if i % 2 == 0 {
+                    if let Some(s) = pdf_obj_string(doc, item) {
+                        if !s.trim().is_empty() {
+                            out.push(s);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(kids) = dict.get(b"Kids") {
+        if let Some(Object::Array(arr)) = resolve_obj(doc, kids) {
+            for kid in arr {
+                walk_name_tree(doc, kid, out, depth + 1);
+            }
+        }
+    }
 }
 
 fn outline_titles(doc: &Document) -> Vec<String> {

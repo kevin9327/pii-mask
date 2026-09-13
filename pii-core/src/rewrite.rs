@@ -330,7 +330,16 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             let xml = rewrite_sheet_values(&xml, cell_texts);
             crate::parse::ooxml::rewrite_xlsx_header_footers(&xml, hf_texts)
         } else if key == "xl/workbook.xml" || key.ends_with("/workbook.xml") {
-            crate::parse::ooxml::rewrite_xlsx_defined_names(&xml, texts)
+            let sheet_n = crate::parse::ooxml::xlsx_sheet_name_texts(&xml).len();
+            let (sheet_texts, name_texts) = if texts.len() > sheet_n {
+                (&texts[..sheet_n], &texts[sheet_n..])
+            } else {
+                (texts.as_slice(), &[][..])
+            };
+            let xml = crate::parse::ooxml::rewrite_xlsx_sheet_names(&xml, sheet_texts);
+            crate::parse::ooxml::rewrite_xlsx_defined_names(&xml, name_texts)
+        } else if key.starts_with("xl/connections") {
+            crate::parse::ooxml::rewrite_xlsx_connection_texts(&xml, texts)
         } else if key.starts_with("xl/comments") {
             crate::parse::ooxml::rewrite_xlsx_comments(&xml, texts)
         } else if crate::parse::ooxml::is_drawingml_text_part(&key) {

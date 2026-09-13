@@ -205,6 +205,57 @@ fn xlsx_with_defined_name(formula: &str) -> Vec<u8> {
     .expect("xlsx definedName zip")
 }
 
+fn xlsx_with_sheet_name(name: &str, cell: &str) -> Vec<u8> {
+    let wb = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheets><sheet name="{}" sheetId="1" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></sheets>
+</workbook>"#,
+        xml_escape(name)
+    );
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    write_zip(&[
+        ("xl/workbook.xml".into(), wb.into_bytes()),
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+    ])
+    .expect("xlsx sheet name zip")
+}
+
+fn xlsx_with_connection_name(name: &str, cell: &str) -> Vec<u8> {
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    let conn = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<connections xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<connection id="1" name="{}" type="5"/>
+</connections>"#,
+        xml_escape(name)
+    );
+    write_zip(&[
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+        ("xl/connections.xml".into(), conn.into_bytes()),
+    ])
+    .expect("xlsx connection zip")
+}
+
 fn pdf_with_open_action_js(script: &str) -> Vec<u8> {
     let escaped = script.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
     let stream = "BT /F1 12 Tf 72 720 Td (visible) Tj ET";
@@ -2050,6 +2101,48 @@ fn process_file_docx_rels_target_is_masked() {
     let again = crate::parse::extract("rel.docx", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "rels Target left raw: {}", again.full_text);
     assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_sheet_name_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_sheet_name(&format!("명단{rrn}"), "본문만");
+    let out = process_file("tabs.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "XLSX sheet name RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked sheet name");
+    let again = crate::parse::extract("tabs.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "sheet name left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_connection_name_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_connection_name(&format!("쿼리{rrn}"), "본문만");
+    let out = process_file("conn.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "XLSX connection name RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked connection");
+    let again = crate::parse::extract("conn.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "connection left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

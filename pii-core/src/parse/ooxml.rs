@@ -260,7 +260,33 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         }
         if key == "xl/workbook.xml" || key.ends_with("/workbook.xml") && key.contains("xl/") {
             let xml = String::from_utf8_lossy(data).into_owned();
+            for (i, t) in xlsx_sheet_name_texts(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: i,
+                    },
+                });
+            }
+            let sheet_n = xlsx_sheet_name_texts(&xml).len();
             for (i, t) in xlsx_defined_name_texts(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: sheet_n + i,
+                    },
+                });
+            }
+        }
+        if key.starts_with("xl/connections") && key.ends_with(".xml") {
+            let xml = String::from_utf8_lossy(data).into_owned();
+            for (i, t) in xlsx_connection_texts(&xml).into_iter().enumerate() {
                 paragraphs.push(Paragraph {
                     index: paragraphs.len(),
                     text: t,
@@ -926,6 +952,39 @@ fn replace_tag_inner(xml: &str, tag: &str, new_text: &str) -> String {
     out.push_str(&xml_escape(new_text));
     out.push_str(&xml[inner_start + e..]);
     out
+}
+
+pub fn xlsx_sheet_name_texts(xml: &str) -> Vec<String> {
+    xml_tagged_attr_values(xml, "sheet", "name")
+}
+
+pub fn rewrite_xlsx_sheet_names(xml: &str, new_texts: &[String]) -> String {
+    rewrite_tagged_attr_values(xml, "sheet", "name", new_texts)
+}
+
+pub fn xlsx_connection_texts(xml: &str) -> Vec<String> {
+    let mut out = xml_tagged_attr_values(xml, "connection", "name");
+    out.extend(xml_tagged_attr_values(xml, "connection", "description"));
+    out.extend(xml_tagged_attr_values(xml, "dbPr", "connection"));
+    out
+}
+
+pub fn rewrite_xlsx_connection_texts(xml: &str, new_texts: &[String]) -> String {
+    let n_name = xml_tagged_attr_values(xml, "connection", "name").len();
+    let n_desc = xml_tagged_attr_values(xml, "connection", "description").len();
+    let (names, rest) = if new_texts.len() > n_name {
+        (&new_texts[..n_name], &new_texts[n_name..])
+    } else {
+        (new_texts, &[][..])
+    };
+    let (descs, conns) = if rest.len() > n_desc {
+        (&rest[..n_desc], &rest[n_desc..])
+    } else {
+        (rest, &[][..])
+    };
+    let xml = rewrite_tagged_attr_values(xml, "connection", "name", names);
+    let xml = rewrite_tagged_attr_values(&xml, "connection", "description", descs);
+    rewrite_tagged_attr_values(&xml, "dbPr", "connection", conns)
 }
 
 pub fn xlsx_defined_name_texts(xml: &str) -> Vec<String> {

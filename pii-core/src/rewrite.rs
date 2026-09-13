@@ -108,9 +108,9 @@ pub fn rewrite(
             masked_paragraphs: masked_paras,
         }),
         FileFormat::Json => {
-            let bytes = rewrite_json(extracted, findings, mode, rules);
+            let text = rewrite_json(extracted, findings, mode, rules);
             Ok(RewriteOut {
-                bytes: bytes.into_bytes(),
+                bytes: encode_text(extracted, &text),
                 filename: extracted.filename.clone(),
                 fallback_note: None,
                 diffs,
@@ -118,9 +118,9 @@ pub fn rewrite(
             })
         }
         FileFormat::Txt | FileFormat::Csv => {
-            let bytes = rewrite_plain(extracted, findings, mode, rules);
+            let text = rewrite_plain(extracted, findings, mode, rules);
             Ok(RewriteOut {
-                bytes: bytes.into_bytes(),
+                bytes: encode_text(extracted, &text),
                 filename: extracted.filename.clone(),
                 fallback_note: None,
                 diffs,
@@ -130,13 +130,20 @@ pub fn rewrite(
     }
 }
 
+fn encode_text(extracted: &Extracted, text: &str) -> Vec<u8> {
+    crate::parse::text::encode(
+        text,
+        extracted.encoding.unwrap_or(crate::types::TextEncoding::Utf8),
+    )
+}
+
 fn rewrite_plain(
     extracted: &Extracted,
     findings: &[Finding],
     mode: MaskMode,
     rules: &RuleSet,
 ) -> String {
-    let (text, _) = crate::parse::text::decode(&extracted.original);
+    let (text, _, _) = crate::parse::text::decode(&extracted.original);
     // Map paragraph findings back onto original text using sequential byte ranges.
     let mut ops: Vec<(usize, usize, String)> = Vec::new();
     for f in findings {
@@ -180,7 +187,7 @@ fn rewrite_json(
     mode: MaskMode,
     rules: &RuleSet,
 ) -> String {
-    let (text, _) = crate::parse::text::decode(&extracted.original);
+    let (text, _, _) = crate::parse::text::decode(&extracted.original);
     let mut ops: Vec<(usize, usize, String, bool)> = Vec::new();
     for f in findings {
         if f.confidence == Confidence::AlreadyMasked {

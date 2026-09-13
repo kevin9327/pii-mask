@@ -1,16 +1,16 @@
 use encoding_rs::{EUC_KR, UTF_16BE, UTF_16LE};
 
 use crate::error::Result;
-use crate::types::{Extracted, FileFormat, ParaLoc, Paragraph};
+use crate::types::{Extracted, FileFormat, ParaLoc, Paragraph, TextEncoding};
 
 pub fn extract(filename: &str, bytes: &[u8], format: FileFormat) -> Result<Extracted> {
-    let (text, warn) = decode(bytes);
+    let (text, warn, enc) = decode(bytes);
     let mut warnings = Vec::new();
     if let Some(w) = warn {
         warnings.push(w);
     }
     let paragraphs = split_paragraphs(&text);
-    Ok(super::finish(
+    let mut extracted = super::finish(
         filename,
         if format == FileFormat::Unknown {
             FileFormat::Txt
@@ -22,31 +22,62 @@ pub fn extract(filename: &str, bytes: &[u8], format: FileFormat) -> Result<Extra
         warnings,
         None,
         None,
-    ))
+    );
+    extracted.encoding = Some(enc);
+    Ok(extracted)
 }
 
-pub fn decode(bytes: &[u8]) -> (String, Option<String>) {
+pub fn decode(bytes: &[u8]) -> (String, Option<String>, TextEncoding) {
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        return (String::from_utf8_lossy(&bytes[3..]).into_owned(), None);
+        return (
+            String::from_utf8_lossy(&bytes[3..]).into_owned(),
+            None,
+            TextEncoding::Utf8Bom,
+        );
     }
     if bytes.starts_with(&[0xFF, 0xFE]) {
         let (cow, _, _) = UTF_16LE.decode(&bytes[2..]);
-        return (cow.into_owned(), None);
+        return (cow.into_owned(), None, TextEncoding::Utf16Le);
     }
     if bytes.starts_with(&[0xFE, 0xFF]) {
         let (cow, _, _) = UTF_16BE.decode(&bytes[2..]);
-        return (cow.into_owned(), None);
+        return (cow.into_owned(), None, TextEncoding::Utf16Be);
     }
     if let Ok(s) = std::str::from_utf8(bytes) {
-        return (s.to_string(), None);
+        return (s.to_string(), None, TextEncoding::Utf8);
     }
     let (cow, _, had_errors) = EUC_KR.decode(bytes);
     let warn = if had_errors {
         Some("UTF-8이 아니어서 EUC-KR로 해석했습니다.".to_string())
     } else {
-        Some("EUC-KR/CP949 로 해석했습니다. 마스킹 출력은 UTF-8 입니다.".to_string())
+        Some("EUC-KR/CP949 로 해석했습니다.".to_string())
     };
-    (cow.into_owned(), warn)
+    (cow.into_owned(), warn, TextEncoding::EucKr)
+}
+
+pub fn encode(text: &str, enc: TextEncoding) -> Vec<u8> {
+    match enc {
+        TextEncoding::Utf8 => text.as_bytes().to_vec(),
+        TextEncoding::Utf8Bom => {
+            let mut out = vec![0xEF, 0xBB, 0xBF];
+            out.extend_from_slice(text.as_bytes());
+            out
+        }
+        TextEncoding::Utf16Le => {
+            let mut out = vec![0xFF, 0xFE];
+            out.extend(text.encode_utf16().flat_map(|u| u.to_le_bytes()));
+            out
+        }
+        TextEncoding::Utf16Be => {
+            let mut out = vec![0xFE, 0xFF];
+            out.extend(text.encode_utf16().flat_map(|u| u.to_be_bytes()));
+            out
+        }
+        TextEncoding::EucKr => {
+            let (cow, _, _) = EUC_KR.encode(text);
+            cow.into_owned()
+        }
+    }
 }
 
 pub fn split_paragraphs(text: &str) -> Vec<Paragraph> {

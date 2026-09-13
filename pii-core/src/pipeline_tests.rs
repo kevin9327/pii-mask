@@ -5,7 +5,7 @@ use crate::parse::ooxml::{xml_escape, write_zip};
 use crate::report::{csv_report, html_report, json_report};
 use crate::types::Confidence;
 use crate::{process_file, MaskMode, ProcessConfig, RuleSet};
-use docagent_model::{Block, Document, Paragraph, Section};
+use docagent_model::{Block, Document, Paragraph, Section, Table};
 
 fn cfg(mode: MaskMode, do_mask: bool) -> ProcessConfig {
     ProcessConfig {
@@ -119,6 +119,22 @@ fn hwpx_with_text(text: &str) -> Vec<u8> {
     section.body.push(Block::Paragraph(Paragraph::from_text(text)));
     doc.sections.push(section);
     docagent_hwpx::write(&doc).expect("hwpx write")
+}
+
+fn hwp5_with_table_cell(cell: &str) -> Vec<u8> {
+    let mut doc = Document::new();
+    let mut section = Section::default();
+    section.body.push(Block::Table(Table::from_cells(vec![
+        vec!["이름".into(), cell.into()],
+    ])));
+    doc.sections.push(section);
+    docagent_hwp5::write(&doc).expect("hwp5 table write")
+}
+
+fn utf16le_bytes(text: &str) -> Vec<u8> {
+    let mut out = vec![0xFF, 0xFE];
+    out.extend(text.encode_utf16().flat_map(|u| u.to_le_bytes()));
+    out
 }
 
 fn hwp5_with_text(text: &str) -> Vec<u8> {
@@ -671,6 +687,72 @@ fn unknown_zip_is_not_parsed_as_txt() {
         out.report.warnings
     );
     assert!(out.report.findings.is_empty());
+}
+
+#[test]
+fn process_file_masks_hwp_table_cell() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = hwp5_with_table_cell(&format!("셀 {rrn}"));
+    let out = process_file("tbl.hwp", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Hwp);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "table cell RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked hwp");
+    let again = crate::parse::extract("tbl.hwp", &masked).unwrap();
+    assert!(
+        !again.full_text.contains(&rrn),
+        "table rewrite left raw: {}",
+        again.full_text
+    );
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_utf16le_txt_keeps_bom_and_masks() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let src = format!("UTF16 {rrn} 끝");
+    let bytes = utf16le_bytes(&src);
+    let out = process_file("u.txt", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "utf16 RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked utf16");
+    assert_eq!(&masked[..2], &[0xFF, 0xFE], "UTF-16 LE BOM lost");
+    let (text, _, enc) = crate::parse::text::decode(&masked);
+    assert_eq!(enc, crate::types::TextEncoding::Utf16Le);
+    assert!(!text.contains(&rrn), "utf16 masked still has raw: {text}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_quoted_csv_masks_field() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let csv = format!("name,rrn\n\"홍길동\",\"{rrn}\"\n");
+    let out = process_file("q.csv", csv.as_bytes(), &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Csv);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "quoted csv missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.unwrap()).unwrap();
+    assert!(masked.starts_with("name,rrn"), "csv header lost: {masked}");
+    assert!(!masked.contains(&rrn), "quoted csv still has raw: {masked}");
+    assert!(masked.contains('\"'), "quotes dropped: {masked}");
 }
 
 fn docx_with_header_only(header: &str, body: &str) -> Vec<u8> {

@@ -130,5 +130,6 @@ pub(crate) fn finish(
         original,
         hwp_doc,
         zip_parts,
+        encoding: None,
     }
 }

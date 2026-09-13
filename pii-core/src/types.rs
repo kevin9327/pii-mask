@@ -199,4 +199,14 @@ pub struct Extracted {
     pub original: Vec<u8>,
     pub hwp_doc: Option<docagent_model::Document>,
     pub zip_parts: Option<Vec<(String, Vec<u8>)>>,
+    pub encoding: Option<TextEncoding>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextEncoding {
+    Utf8,
+    Utf8Bom,
+    Utf16Le,
+    Utf16Be,
+    EucKr,
 }

@@ -39,7 +39,9 @@
 
 마스킹 모드: 전체(`*******`) · 부분(항목별 기본) · 치환(`[주민번호]`) · 삭제. 결과는 파일별·전체 CSV, JSON, HTML 리포트와 전/후 diff로 나갑니다. 규칙은 `pii-core/rules.toml`이며 UI에서 기관 커스텀 `[[rules]]`를 덮어쓸 수 있습니다.
 
-DOCX는 본문만이 아니라 `word/header*.xml`, `footer`, `footnotes`, `endnotes`, `comments` 단락까지 같은 오프셋으로 지웁니다. XLSX에서 `t="s"` 셀의 `<v>`는 공유 문자열 **인덱스**이므로 카드·주민 숫자로 오인하지 않습니다. JSON 숫자는 마스킹 뒤에도 `serde_json`이 파싱 가능한 문서를 유지합니다.
+DOCX는 본문만이 아니라 `word/header*.xml`, `footer`, `footnotes`, `endnotes`, `comments` 단락까지 같은 오프셋으로 지웁니다. XLSX에서 `t="s"` 셀의 `<v>`는 공유 문자열 **인덱스**이므로 카드·주민 숫자로 오인하지 않습니다. JSON 숫자는 마스킹 뒤에도 `serde_json`이 파싱 가능한 문서를 유지합니다. HWP **표 셀**도 본문과 같은 IR 경로로 마스킹합니다. TXT/CSV는 UTF-16 LE/BE BOM과 EUC-KR을 읽어 **같은 인코딩으로** 다시 씁니다. 따옴표로 감싼 CSV 필드도 헤더를 유지한 채 값만 가립니다.
+
+![원 포맷 유지와 잔여 스캔](docs/coverage.svg)
 
 ## 실행
 

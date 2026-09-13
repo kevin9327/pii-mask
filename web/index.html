@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>브라우저 전용 개인정보 탐지·마스킹</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1>PII Mask</h1>
+        <p class="sub">Rust + WASM · 파일은 이 브라우저 밖으로 나가지 않습니다</p>
+      </div>
+      <p class="privacy">모든 처리는 클라이언트(Web Worker)에서만 수행됩니다. 서버 전송 없음.</p>
+    </header>
+
+    <main>
+      <section id="drop" class="drop" tabindex="0">
+        <input id="file-input" type="file" multiple hidden />
+        <div>
+          <strong>폴더 또는 여러 파일을 여기에 놓으세요</strong>
+          <p>HWP, HWPX, TXT, CSV, JSON, PDF, DOCX, XLSX</p>
+          <button type="button" id="pick">파일 선택</button>
+        </div>
+      </section>
+
+      <section class="toolbar">
+        <label>마스킹 모드
+          <select id="mask-mode">
+            <option value="full">전체 (*******)</option>
+            <option value="partial" selected>부분 (항목별 기본)</option>
+            <option value="replace">치환 ([주민번호])</option>
+            <option value="delete">삭제</option>
+          </select>
+        </label>
+        <label class="grow">기관 커스텀 rules.toml
+          <textarea id="extra-rules" rows="3" placeholder="[[rules]]&#10;id = &quot;employee_no&quot;&#10;label = &quot;사번&quot;&#10;pattern = 'EMP-\d{6}'"></textarea>
+        </label>
+        <div class="actions">
+          <button type="button" id="run" disabled>탐지·마스킹</button>
+          <button type="button" id="clear" disabled>비우기</button>
+        </div>
+      </section>
+
+      <p id="status" class="status">대기 중 — WASM 워커를 불러오는 중입니다.</p>
+
+      <section>
+        <h2>결과</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>파일명</th>
+                <th>항목 유형</th>
+                <th>건수</th>
+                <th>확정 / 의심</th>
+                <th>미리보기 (값 마스킹)</th>
+              </tr>
+            </thead>
+            <tbody id="rows">
+              <tr><td colspan="5" class="empty">아직 결과가 없습니다.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="split">
+        <div>
+          <h2>마스킹 전/후</h2>
+          <div id="diffs" class="diffs empty-box">파일을 처리하면 문단 단위 diff가 표시됩니다.</div>
+        </div>
+        <div>
+          <h2>다운로드</h2>
+          <div class="downloads">
+            <button type="button" id="dl-masked" disabled>마스킹 파일 모두 (zip)</button>
+            <button type="button" id="dl-csv" disabled>전체 CSV</button>
+            <button type="button" id="dl-json" disabled>전체 JSON</button>
+            <button type="button" id="dl-html" disabled>전체 HTML</button>
+          </div>
+          <div id="file-dls" class="file-dls"></div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+[package]
+name = "pii-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Client-side PII detection and masking (parse / detect / mask)"
+
+[lib]
+name = "pii_core"
+path = "src/lib.rs"
+
+[dependencies]
+# HWP/HWPX codec from the local docagent git checkout (not rhwp).
+docagent-model = { git = "file:///C:/Users/swsz9/docagent" }
+docagent-hwp5 = { git = "file:///C:/Users/swsz9/docagent" }
+docagent-hwpx = { git = "file:///C:/Users/swsz9/docagent" }
+docagent-hwp3 = { git = "file:///C:/Users/swsz9/docagent" }
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+zip.workspace = true
+lopdf = { version = "0.34", default-features = false, features = ["nom_parser"] }
+encoding_rs.workspace = true
+
+[dev-dependencies]
+# Tests construct OOXML/PDF bytes and drive process_file.
+
+[features]
+default = []

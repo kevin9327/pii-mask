@@ -1,0 +1,127 @@
+# 기본 개인정보 탐지 규칙.
+# 기관별 커스텀은 UI에서 [[rules]] 블록을 추가하거나 같은 id 로 덮어쓴다.
+
+[meta]
+version = 1
+description = "대한민국 주요 개인정보 식별자"
+
+[[rules]]
+id = "resident_id"
+label = "주민등록번호"
+priority = 100
+validator = "rrn"
+replace_token = "[주민번호]"
+partial = "rrn"
+pattern = '\d{6}[\s\-–][0-9*]{7}|\d{13}'
+
+[[rules]]
+id = "foreign_id"
+label = "외국인등록번호"
+priority = 95
+validator = "frn"
+replace_token = "[외국인등록번호]"
+partial = "rrn"
+pattern = '\d{6}[\s\-–][0-9*]{7}|\d{13}'
+
+[[rules]]
+id = "corp_id"
+label = "법인등록번호"
+priority = 90
+validator = "corp"
+replace_token = "[법인등록번호]"
+partial = "corp"
+pattern = '\d{6}[\s\-–][0-9*]{7}|\d{13}'
+
+[[rules]]
+id = "credit_card"
+label = "신용카드번호"
+priority = 85
+validator = "luhn"
+replace_token = "[신용카드]"
+partial = "card"
+pattern = '\d(?:[\s\-*]?\d){12,18}'
+
+[[rules]]
+id = "business_id"
+label = "사업자등록번호"
+priority = 80
+validator = "biz"
+replace_token = "[사업자번호]"
+partial = "biz"
+pattern = '\d{3}[\s\-–]?\d{2}[\s\-–]?[0-9*]{5}'
+
+[[rules]]
+id = "mobile_phone"
+label = "휴대전화"
+priority = 75
+validator = "phone"
+replace_token = "[휴대전화]"
+partial = "phone"
+pattern = '01[016789][\s\-–]?[0-9*]{3,4}[\s\-–]?[0-9*]{4}'
+
+[[rules]]
+id = "email"
+label = "이메일"
+priority = 70
+validator = "email"
+replace_token = "[이메일]"
+partial = "email"
+pattern = '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}'
+
+[[rules]]
+id = "driver_license"
+label = "운전면허번호"
+priority = 65
+validator = "driver_license"
+replace_token = "[운전면허]"
+partial = "driver"
+pattern = '(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주|\d{2})[\s\-–]\d{2}[\s\-–]\d{6}[\s\-–]\d{2}'
+
+[[rules]]
+id = "passport"
+label = "여권번호"
+priority = 60
+validator = "passport"
+replace_token = "[여권번호]"
+partial = "passport"
+pattern = '[A-Z]{1,2}\d{7,8}'
+
+[[rules]]
+id = "bank_account"
+label = "계좌번호"
+priority = 55
+validator = "bank"
+replace_token = "[계좌번호]"
+partial = "account"
+patterns = [
+  '\d{3}[\s\-]\d{2}[\s\-]\d{6}[\s\-]\d{3}',
+  '\d{3}[\s\-]\d{3}[\s\-]\d{6}',
+  '\d{4}[\s\-]\d{3}[\s\-]\d{6}',
+  '\d{3}[\s\-]\d{6}[\s\-]\d{5}',
+  '\d{3}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{2}',
+  '\d{6}[\s\-]\d{2}[\s\-]\d{6}',
+  '\d{3}[\s\-]\d{6}[\s\-]\d{2}[\s\-]\d{3}',
+  '\d{4}[\s\-]\d{2}[\s\-]\d{7}',
+  '\d{3}[\s\-]\d{2}[\s\-]\d{7}',
+]
+
+[[rules]]
+id = "health_insurance"
+label = "건강보험증번호"
+priority = 50
+validator = "health"
+replace_token = "[건강보험증]"
+partial = "health"
+pattern = '\d{6}[\s\-–][0-9*]{5}|\d{11}'
+
+[[rules]]
+id = "ip_address"
+label = "IP 주소"
+priority = 40
+validator = "ip"
+replace_token = "[IP주소]"
+partial = "ip"
+patterns = [
+  '(?:(?:25[0-5]|2[0-4]\d|1?\d{1,2})\.){3}(?:25[0-5]|2[0-4]\d|1?\d{1,2})',
+  '(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4}',
+]

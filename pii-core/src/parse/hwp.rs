@@ -41,6 +41,22 @@ pub fn extract(filename: &str, bytes: &[u8], format: FileFormat) -> Result<Extra
             );
         }
     }
+    if format == FileFormat::Hwp {
+        if let Some(preview) = read_prvtext(bytes) {
+            if !preview.trim().is_empty() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: preview,
+                    full_byte_start: 0,
+                    loc: ParaLoc::Hwp {
+                        section: 0,
+                        region: HwpRegion::Body,
+                        segs: Vec::new(),
+                    },
+                });
+            }
+        }
+    }
     let warnings = doc.diagnostics.iter().map(|d| d.message.clone()).collect();
     Ok(super::finish(
         filename,
@@ -66,6 +82,33 @@ pub fn read_doc(bytes: &[u8], format: FileFormat) -> Result<Document> {
         }
         _ => Err(Error::Parse("HWP 형식이 아닙니다".into())),
     }
+}
+
+fn read_prvtext(bytes: &[u8]) -> Option<String> {
+    use std::io::{Cursor, Read};
+    let mut comp = cfb::CompoundFile::open(Cursor::new(bytes.to_vec())).ok()?;
+    for name in ["PrvText", "/PrvText", "\\PrvText"] {
+        if !comp.exists(name) {
+            continue;
+        }
+        let mut stream = comp.open_stream(name).ok()?;
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).ok()?;
+        if buf.len() < 2 {
+            continue;
+        }
+        let u16s: Vec<u16> = buf
+            .chunks(2)
+            .filter(|c| c.len() == 2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .take_while(|u| *u != 0)
+            .collect();
+        let s = String::from_utf16_lossy(&u16s);
+        if !s.trim().is_empty() {
+            return Some(s);
+        }
+    }
+    None
 }
 
 pub fn write_doc(doc: &Document, format: FileFormat) -> Result<Vec<u8>> {

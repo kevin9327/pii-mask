@@ -313,6 +313,8 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             crate::parse::ooxml::rewrite_xlsx_header_footers(&xml, hf_texts)
         } else if key.starts_with("xl/comments") {
             crate::parse::ooxml::rewrite_xlsx_comments(&xml, texts)
+        } else if key.starts_with("docProps/") {
+            crate::parse::ooxml::rewrite_core_props(&xml, texts)
         } else {
             xml
         };

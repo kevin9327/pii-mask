@@ -34,6 +34,7 @@ pub fn extract_docx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             });
         }
     }
+    push_core_prop_paragraphs(&parts, &mut paragraphs);
     Ok(super::finish(
         filename,
         FileFormat::Docx,
@@ -43,6 +44,71 @@ pub fn extract_docx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         None,
         Some(parts),
     ))
+}
+
+const CORE_PROP_TAGS: &[&str] = &[
+    "dc:title",
+    "dc:subject",
+    "dc:description",
+    "dc:creator",
+    "cp:lastModifiedBy",
+    "cp:keywords",
+    "dc:identifier",
+    "Application",
+    "Company",
+];
+
+fn is_core_props_part(name: &str) -> bool {
+    let n = name.replace('\\', "/");
+    n == "docProps/core.xml" || n == "docProps/app.xml" || n == "docProps/custom.xml"
+}
+
+fn push_core_prop_paragraphs(parts: &[(String, Vec<u8>)], paragraphs: &mut Vec<Paragraph>) {
+    for (name, data) in parts {
+        if !is_core_props_part(name) {
+            continue;
+        }
+        let xml = String::from_utf8_lossy(data);
+        for (i, t) in core_prop_texts(&xml).into_iter().enumerate() {
+            paragraphs.push(Paragraph {
+                index: paragraphs.len(),
+                text: t,
+                full_byte_start: 0,
+                loc: ParaLoc::ZipXml {
+                    inner_path: name.replace('\\', "/"),
+                    para_ord: i,
+                },
+            });
+        }
+    }
+}
+
+pub fn core_prop_texts(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for tag in CORE_PROP_TAGS {
+        if let Some(inner) = xml_tag_inner(xml, tag) {
+            if !inner.trim().is_empty() {
+                out.push(xml_unescape(&inner));
+            }
+        }
+    }
+    out
+}
+
+pub fn rewrite_core_props(xml: &str, new_texts: &[String]) -> String {
+    let mut out = xml.to_string();
+    let mut idx = 0usize;
+    for tag in CORE_PROP_TAGS {
+        if xml_tag_inner(&out, tag).map(|s| s.trim().is_empty()).unwrap_or(true) {
+            continue;
+        }
+        if idx >= new_texts.len() {
+            break;
+        }
+        out = replace_tag_inner(&out, tag, &new_texts[idx]);
+        idx += 1;
+    }
+    out
 }
 
 fn is_docx_text_part(name: &str) -> bool {
@@ -108,6 +174,7 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             }
         }
     }
+    push_core_prop_paragraphs(&parts, &mut paragraphs);
     Ok(super::finish(
         filename,
         FileFormat::Xlsx,

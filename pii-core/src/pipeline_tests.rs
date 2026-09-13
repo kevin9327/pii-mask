@@ -293,6 +293,49 @@ fn utf16le_bytes(text: &str) -> Vec<u8> {
     out
 }
 
+fn hwp_with_prvtext_preview(body: &str, preview: &str) -> Vec<u8> {
+    use std::io::{Cursor, Write};
+    let bytes = hwp5_with_text(body);
+    let mut cursor = Cursor::new(bytes);
+    {
+        let mut comp = cfb::CompoundFile::open(&mut cursor).expect("cfb open");
+        let utf16: Vec<u8> = preview
+            .encode_utf16()
+            .flat_map(|u| u.to_le_bytes())
+            .chain([0u8, 0])
+            .collect();
+        let mut stream = if comp.exists("PrvText") {
+            comp.open_stream("PrvText").expect("open PrvText")
+        } else {
+            comp.create_stream("PrvText").expect("create PrvText")
+        };
+        let _ = stream.set_len(utf16.len() as u64);
+        stream.write_all(&utf16).expect("write PrvText");
+    }
+    cursor.into_inner()
+}
+
+fn docx_with_core_description(description: &str, body: &str) -> Vec<u8> {
+    let body_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>{}</w:t></w:r></w:p></w:body></w:document>"#,
+        xml_escape(body)
+    );
+    let core = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:description>{}</dc:description>
+</cp:coreProperties>"#,
+        xml_escape(description)
+    );
+    write_zip(&[
+        ("word/document.xml".into(), body_xml.into_bytes()),
+        ("docProps/core.xml".into(), core.into_bytes()),
+    ])
+    .expect("docx core zip")
+}
+
 fn hwp5_with_text(text: &str) -> Vec<u8> {
     let mut doc = Document::new();
     let mut section = Section::default();
@@ -1092,6 +1135,51 @@ fn process_file_pdf_info_subject_is_detected() {
     );
     let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
     assert!(!masked.contains(&rrn), "info PII left: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_hwp_prvtext_preview_is_detected_and_cleared() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = hwp_with_prvtext_preview("본문만", &format!("미리보기 {rrn}"));
+    let out = process_file("prv.hwp", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Hwp);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PrvText RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked hwp");
+    let again = crate::parse::extract("prv.hwp", &masked).unwrap();
+    assert!(
+        !again.full_text.contains(&rrn),
+        "PrvText/body still has raw: {}",
+        again.full_text
+    );
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_docx_core_description_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = docx_with_core_description(&format!("속성 {rrn}"), "본문만");
+    let out = process_file("core.docx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Docx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "core.xml RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked docx core");
+    let again = crate::parse::extract("core.docx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "core prop left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

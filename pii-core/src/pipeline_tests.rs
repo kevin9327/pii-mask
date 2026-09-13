@@ -593,6 +593,67 @@ fn epub_with_text(text: &str) -> Vec<u8> {
     .expect("epub zip")
 }
 
+fn odt_with_styles_header(header: &str, body: &str) -> Vec<u8> {
+    let content = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+<office:body><office:text>
+<text:p>{}</text:p>
+</office:text></office:body>
+</office:document-content>"#,
+        xml_escape(body)
+    );
+    let styles = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+<office:master-styles>
+<style:master-page style:name="Standard">
+<style:header><text:p>{}</text:p></style:header>
+</style:master-page>
+</office:master-styles>
+</office:document-styles>"#,
+        xml_escape(header)
+    );
+    write_zip(&[
+        ("META-INF/manifest.xml".into(), odf_manifest()),
+        ("content.xml".into(), content.into_bytes()),
+        ("styles.xml".into(), styles.into_bytes()),
+    ])
+    .expect("odt styles zip")
+}
+
+fn epub_with_opf_creator(creator: &str, chapter: &str) -> Vec<u8> {
+    let container = r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#;
+    let opf = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="id" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:identifier id="id">urn:uuid:test</dc:identifier>
+<dc:title>장</dc:title>
+<dc:creator>{}</dc:creator>
+<dc:language>ko</dc:language>
+</metadata>
+<manifest><item id="ch" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
+<spine><itemref idref="ch"/></spine>
+</package>"#,
+        xml_escape(creator)
+    );
+    let xhtml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>{}</p></body></html>"#,
+        xml_escape(chapter)
+    );
+    write_zip(&[
+        ("META-INF/container.xml".into(), container.as_bytes().to_vec()),
+        ("OEBPS/content.opf".into(), opf.into_bytes()),
+        ("OEBPS/chapter.xhtml".into(), xhtml.into_bytes()),
+    ])
+    .expect("epub opf zip")
+}
+
 fn ods_with_text(text: &str) -> Vec<u8> {
     let content = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -2303,6 +2364,48 @@ fn process_file_pdf_struct_alt_is_detected() {
     );
     let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
     assert!(!masked.contains(&rrn), "struct alt PII left: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_odt_styles_header_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = odt_with_styles_header(&format!("머리말 {rrn}"), "본문만");
+    let out = process_file("hdr.odt", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Odt);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "ODT styles.xml header RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked odt styles");
+    let again = crate::parse::extract("hdr.odt", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "styles header left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_epub_opf_creator_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = epub_with_opf_creator(&format!("저자 {rrn}"), "본문만");
+    let out = process_file("meta.epub", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Epub);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "EPUB OPF dc:creator RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked epub opf");
+    let again = crate::parse::extract("meta.epub", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "opf creator left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "chapter lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

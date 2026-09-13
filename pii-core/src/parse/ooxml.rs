@@ -498,7 +498,7 @@ pub fn extract_odf(filename: &str, bytes: &[u8], format: FileFormat) -> Result<E
 
 fn is_odf_text_part(name: &str) -> bool {
     let n = name.replace('\\', "/");
-    n == "content.xml" || n == "meta.xml"
+    n == "content.xml" || n == "meta.xml" || n == "styles.xml"
 }
 
 pub fn extract_epub(filename: &str, bytes: &[u8]) -> Result<Extracted> {
@@ -543,7 +543,10 @@ pub fn is_epub_text_part(name: &str) -> bool {
     if n.contains("/_rels/") || n.starts_with("meta-inf/") {
         return false;
     }
-    n.ends_with(".xhtml") || n.ends_with(".html") || n.ends_with(".htm")
+    n.ends_with(".xhtml")
+        || n.ends_with(".html")
+        || n.ends_with(".htm")
+        || n.ends_with(".opf")
 }
 
 fn is_pptx_text_part(name: &str) -> bool {

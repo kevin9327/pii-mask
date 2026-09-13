@@ -31,7 +31,7 @@
 | `.odt` `.ott` `.ods` `.ots` | ODF `content.xml` 텍스트 노드 | 원 포맷 |
 | `.epub` | ZIP 안 XHTML 텍스트 노드 | 원 포맷 |
 
-스캔 PDF는 **텍스트 없음**으로 리포트합니다. 본문 스트림에 없어도 주석(`/Contents`)과 AcroForm 필드(`/V`)에 남은 주민번호는 `process_file`이 같은 규칙으로 잡습니다. 머리글·바닥글로 쓰는 **Form XObject** 텍스트와 엑셀 **셀 메모**(`xl/comments1.xml`)도 같은 엔진입니다. 엑셀 **인쇄 머리글/바닥글**(`oddHeader`)과 PDF **문서 정보 사전**(`/Info` Title·Subject·Author 등)은 미리보기 본문과 별도라서 따로 읽습니다. HWP **PrvText**(탐색기 미리보기 스트림)와 OOXML **docProps/core.xml**(설명·작성자)도 본문이 깨끗해도 남을 수 있어 같은 `process_file`이 스캔합니다. 엑셀 **정의된 이름**(`definedName`)과 PDF **책갈피 제목**(`/Outlines` `/Title`)도 셀·페이지가 비어 있어도 파일 안에 원문이 있어 같은 엔진이 잡습니다. CSV는 RFC 4180처럼 **따옴표 안 줄바꿈**을 한 행으로 보고 필드를 깨지 않습니다. 워드 **콘텐츠 컨트롤**이 묶는 `customXml/item*.xml`도 본문 `w:t`와 따로 스캔합니다. 파워포인트 **슬라이드·발표자 노트**(`a:t`)와 엑셀 **도형 텍스트 상자**(`xl/drawings`)도 셀/본문이 비어 있어도 같은 `process_file`이 잡습니다. PDF **OpenAction JavaScript**(`/JS`)와 엑셀 **차트 제목**(`xl/charts`)도 페이지·셀이 깨끗해도 파일 안에 원문이 있어 같은 엔진이 스캔합니다. 매크로/템플릿 확장자(`.docm` `.xlsm` `.pptm`)는 같은 ZIP 엔진입니다. LibreOffice **ODT/ODS**는 `content.xml` 텍스트 노드를 같은 엔진으로 스캔하고 ZIP 안에서 다시 씁니다. 파워포인트 **슬라이드 메모**(`ppt/comments`)와 엑셀 **피벗 캐시**(`xl/pivotCache`)도 화면 셀이 비어 있어도 파일 안에 원문이 남아 같은 `process_file`이 잡습니다. 슬라이드가 비어 있어도 **슬라이드 마스터·레이아웃**(`ppt/slideMasters`) 자리표시 글자와 PDF **첨부 파일 명세**(`/Filespec` `/F` `/Desc`)는 파일 안에 원문이 있어 같은 엔진이 스캔합니다. 엑셀 **표 정의**(`xl/tables` displayName·열 이름)와 **TSV** 따옴표 여러 줄 필드도 시트 본문과 다른 축이라 같은 `process_file`이 잡습니다. **EPUB** 장 XHTML은 `META-INF/container.xml`로 구분하고 텍스트 노드만 치환합니다. PDF **링크 주석** `/URI`는 페이지 글자가 없어도 주소 문자열을 스캔합니다. 그 밖의 ZIP은 지원하지 않는다고 알리고 원본을 유지합니다.
+스캔 PDF는 **텍스트 없음**으로 리포트합니다. 본문 스트림에 없어도 주석(`/Contents`)과 AcroForm 필드(`/V`)에 남은 주민번호는 `process_file`이 같은 규칙으로 잡습니다. 머리글·바닥글로 쓰는 **Form XObject** 텍스트와 엑셀 **셀 메모**(`xl/comments1.xml`)도 같은 엔진입니다. 엑셀 **인쇄 머리글/바닥글**(`oddHeader`)과 PDF **문서 정보 사전**(`/Info` Title·Subject·Author 등)은 미리보기 본문과 별도라서 따로 읽습니다. HWP **PrvText**(탐색기 미리보기 스트림)와 OOXML **docProps/core.xml**(설명·작성자)도 본문이 깨끗해도 남을 수 있어 같은 `process_file`이 스캔합니다. 엑셀 **정의된 이름**(`definedName`)과 PDF **책갈피 제목**(`/Outlines` `/Title`)도 셀·페이지가 비어 있어도 파일 안에 원문이 있어 같은 엔진이 잡습니다. CSV는 RFC 4180처럼 **따옴표 안 줄바꿈**을 한 행으로 보고 필드를 깨지 않습니다. 워드 **콘텐츠 컨트롤**이 묶는 `customXml/item*.xml`도 본문 `w:t`와 따로 스캔합니다. 파워포인트 **슬라이드·발표자 노트**(`a:t`)와 엑셀 **도형 텍스트 상자**(`xl/drawings`)도 셀/본문이 비어 있어도 같은 `process_file`이 잡습니다. PDF **OpenAction JavaScript**(`/JS`)와 엑셀 **차트 제목**(`xl/charts`)도 페이지·셀이 깨끗해도 파일 안에 원문이 있어 같은 엔진이 스캔합니다. 매크로/템플릿 확장자(`.docm` `.xlsm` `.pptm`)는 같은 ZIP 엔진입니다. LibreOffice **ODT/ODS**는 `content.xml` 텍스트 노드를 같은 엔진으로 스캔하고 ZIP 안에서 다시 씁니다. 파워포인트 **슬라이드 메모**(`ppt/comments`)와 엑셀 **피벗 캐시**(`xl/pivotCache`)도 화면 셀이 비어 있어도 파일 안에 원문이 남아 같은 `process_file`이 잡습니다. 슬라이드가 비어 있어도 **슬라이드 마스터·레이아웃**(`ppt/slideMasters`) 자리표시 글자와 PDF **첨부 파일 명세**(`/Filespec` `/F` `/Desc`)는 파일 안에 원문이 있어 같은 엔진이 스캔합니다. 엑셀 **표 정의**(`xl/tables` displayName·열 이름)와 **TSV** 따옴표 여러 줄 필드도 시트 본문과 다른 축이라 같은 `process_file`이 잡습니다. **EPUB** 장 XHTML은 `META-INF/container.xml`로 구분하고 텍스트 노드만 치환합니다. PDF **링크 주석** `/URI`는 페이지 글자가 없어도 주소 문자열을 스캔합니다. 워드 **필드 코드**(`w:instrText` HYPERLINK)와 OOXML **관계 파일**(`_rels` `Target`)은 화면에 안 보여도 파일 안에 원문이 있어 같은 `process_file`이 잡습니다. 그 밖의 ZIP은 지원하지 않는다고 알리고 원본을 유지합니다.
 
 ![PDF 콘텐츠 스트림 · 주석 · 양식 · 스캔](docs/pdf-layers.svg)
 
@@ -58,6 +58,8 @@
 ![엑셀 표 정의와 TSV 여러 줄 필드](docs/table-tsv.svg)
 
 ![EPUB XHTML과 PDF 링크 URI](docs/epub-uri.svg)
+
+![DOCX 필드 코드와 관계 Target](docs/field-rels.svg)
 
 ## 탐지와 마스킹
 

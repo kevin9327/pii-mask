@@ -308,7 +308,16 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
         let next = if key.starts_with("customXml/") && key.ends_with(".xml") {
             crate::parse::ooxml::rewrite_xml_text_nodes(&xml, texts)
         } else if key.starts_with("word/") && key.ends_with(".xml") {
-            rewrite_docx_paragraphs(&xml, texts)
+            let para_n = crate::parse::ooxml::docx_paragraphs(&xml).len();
+            let (para_texts, instr_texts) = if texts.len() > para_n {
+                (&texts[..para_n], &texts[para_n..])
+            } else {
+                (texts.as_slice(), &[][..])
+            };
+            let xml = rewrite_docx_paragraphs(&xml, para_texts);
+            crate::parse::ooxml::rewrite_docx_instr_texts(&xml, instr_texts)
+        } else if key.ends_with(".rels") && key.contains("_rels") {
+            crate::parse::ooxml::rewrite_rels_targets(&xml, texts)
         } else if key == "xl/sharedStrings.xml" {
             rewrite_shared_strings(&xml, texts)
         } else if key.starts_with("xl/worksheets/") {

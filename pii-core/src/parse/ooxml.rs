@@ -25,7 +25,9 @@ pub fn extract_docx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         let texts = if name.starts_with("customXml/") {
             xml_text_nodes(&xml)
         } else {
-            docx_paragraphs(&xml)
+            let mut t = docx_paragraphs(&xml);
+            t.extend(docx_instr_texts(&xml));
+            t
         };
         for (i, t) in texts.into_iter().enumerate() {
             paragraphs.push(Paragraph {
@@ -40,6 +42,7 @@ pub fn extract_docx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         }
     }
     push_core_prop_paragraphs(&parts, &mut paragraphs);
+    push_rels_paragraphs(&parts, &mut paragraphs);
     Ok(super::finish(
         filename,
         FileFormat::Docx,
@@ -62,6 +65,39 @@ const CORE_PROP_TAGS: &[&str] = &[
     "Application",
     "Company",
 ];
+
+fn is_rels_part(name: &str) -> bool {
+    let n = name.replace('\\', "/");
+    n.ends_with(".rels") && n.contains("_rels")
+}
+
+fn push_rels_paragraphs(parts: &[(String, Vec<u8>)], paragraphs: &mut Vec<Paragraph>) {
+    for (name, data) in parts {
+        if !is_rels_part(name) {
+            continue;
+        }
+        let xml = String::from_utf8_lossy(data);
+        for (i, t) in rels_targets(&xml).into_iter().enumerate() {
+            paragraphs.push(Paragraph {
+                index: paragraphs.len(),
+                text: t,
+                full_byte_start: 0,
+                loc: ParaLoc::ZipXml {
+                    inner_path: name.replace('\\', "/"),
+                    para_ord: i,
+                },
+            });
+        }
+    }
+}
+
+pub fn rels_targets(xml: &str) -> Vec<String> {
+    xml_tagged_attr_values(xml, "Relationship", "Target")
+}
+
+pub fn rewrite_rels_targets(xml: &str, new_texts: &[String]) -> String {
+    rewrite_tagged_attr_values(xml, "Relationship", "Target", new_texts)
+}
 
 fn is_core_props_part(name: &str) -> bool {
     let n = name.replace('\\', "/");
@@ -294,6 +330,7 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         }
     }
     push_core_prop_paragraphs(&parts, &mut paragraphs);
+    push_rels_paragraphs(&parts, &mut paragraphs);
     Ok(super::finish(
         filename,
         FileFormat::Xlsx,
@@ -346,6 +383,7 @@ pub fn extract_pptx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         }
     }
     push_core_prop_paragraphs(&parts, &mut paragraphs);
+    push_rels_paragraphs(&parts, &mut paragraphs);
     Ok(super::finish(
         filename,
         FileFormat::Pptx,
@@ -748,6 +786,68 @@ pub fn rewrite_docx_paragraphs(xml: &str, new_texts: &[String]) -> String {
         }
         idx += 1;
         rest = &after[pend + 6..];
+    }
+    out.push_str(rest);
+    out
+}
+
+pub fn docx_instr_texts(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    let close = "</w:instrText>";
+    while let Some(s) = find_open(rest, "w:instrText") {
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            break;
+        };
+        if after.as_bytes().get(gt.saturating_sub(1)) == Some(&b'/') {
+            rest = &after[gt + 1..];
+            continue;
+        }
+        let inner_start = gt + 1;
+        let Some(e) = after[inner_start..].find(close) else {
+            break;
+        };
+        let inner = xml_unescape(&after[inner_start..inner_start + e]);
+        if !inner.trim().is_empty() {
+            out.push(inner);
+        }
+        rest = &after[inner_start + e + close.len()..];
+    }
+    out
+}
+
+pub fn rewrite_docx_instr_texts(xml: &str, new_texts: &[String]) -> String {
+    let mut out = String::new();
+    let mut rest = xml;
+    let mut idx = 0usize;
+    let close = "</w:instrText>";
+    while let Some(s) = find_open(rest, "w:instrText") {
+        out.push_str(&rest[..s]);
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            out.push_str(after);
+            return out;
+        };
+        if after.as_bytes().get(gt.saturating_sub(1)) == Some(&b'/') {
+            out.push_str(&after[..=gt]);
+            rest = &after[gt + 1..];
+            continue;
+        }
+        let inner_start = gt + 1;
+        let Some(e) = after[inner_start..].find(close) else {
+            out.push_str(after);
+            return out;
+        };
+        out.push_str(&after[..inner_start]);
+        if idx < new_texts.len() {
+            out.push_str(&xml_escape(&new_texts[idx]));
+            idx += 1;
+        } else {
+            out.push_str(&after[inner_start..inner_start + e]);
+        }
+        out.push_str(close);
+        rest = &after[inner_start + e + close.len()..];
     }
     out.push_str(rest);
     out

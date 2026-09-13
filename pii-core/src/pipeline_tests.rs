@@ -697,6 +697,41 @@ fn docx_with_custom_xml(ssn: &str, body: &str) -> Vec<u8> {
     .expect("docx customXml zip")
 }
 
+fn docx_with_instr_hyperlink(instr: &str, body: &str) -> Vec<u8> {
+    let body_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>
+<w:p><w:r><w:t>{}</w:t></w:r></w:p>
+<w:p><w:r><w:instrText xml:space="preserve">HYPERLINK "{}"</w:instrText></w:r></w:p>
+</w:body></w:document>"#,
+        xml_escape(body),
+        xml_escape(instr)
+    );
+    write_zip(&[("word/document.xml".into(), body_xml.into_bytes())]).expect("docx instr zip")
+}
+
+fn docx_with_rel_target(target: &str, body: &str) -> Vec<u8> {
+    let body_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>{}</w:t></w:r></w:p></w:body></w:document>"#,
+        xml_escape(body)
+    );
+    let rels = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{}" TargetMode="External"/>
+</Relationships>"#,
+        xml_escape(target)
+    );
+    write_zip(&[
+        ("word/document.xml".into(), body_xml.into_bytes()),
+        ("word/_rels/document.xml.rels".into(), rels.into_bytes()),
+    ])
+    .expect("docx rels zip")
+}
+
 fn docx_with_core_description(description: &str, body: &str) -> Vec<u8> {
     let body_xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1973,6 +2008,48 @@ fn process_file_pdf_uri_action_is_detected() {
     );
     let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
     assert!(!masked.contains(&rrn), "URI PII left: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_docx_instr_hyperlink_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = docx_with_instr_hyperlink(&format!("https://hr.example/?ssn={rrn}"), "본문만");
+    let out = process_file("field.docx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Docx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "DOCX instrText RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked instr");
+    let again = crate::parse::extract("field.docx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "instrText left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_docx_rels_target_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = docx_with_rel_target(&format!("https://hr.example/?ssn={rrn}"), "본문만");
+    let out = process_file("rel.docx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Docx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "DOCX rels Target RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked rels");
+    let again = crate::parse::extract("rel.docx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "rels Target left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

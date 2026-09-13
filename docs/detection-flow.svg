@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420" role="img" aria-labelledby="t d">
+  <title id="t">탐지 결정 흐름</title>
+  <desc id="d">정규식 이후 검증식 실패는 의심, 별표 변형은 이미 마스킹됨, 통과만 확정. 마스킹 후 같은 엔진으로 잔여 확정을 다시 센다.</desc>
+  <rect width="1000" height="420" fill="#0e141b"/>
+  <text x="40" y="40" fill="#e8eef6" font-family="sans-serif" font-size="20" font-weight="700">탐지 결정 — 정규식만으로는 지우지 않는다</text>
+  <text x="40" y="66" fill="#93a0b0" font-family="sans-serif" font-size="13">마스킹은 되돌릴 수 없으므로 검증 실패는 확정이 아니라 의심으로 남긴다.</text>
+
+  <rect x="40" y="100" width="170" height="70" rx="10" fill="#151c25" stroke="#3db8a0"/>
+  <text x="125" y="142" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="14">정규식 매칭</text>
+
+  <polygon points="220,135 250,135 250,127 274,140 250,153 250,145 220,145" fill="#3db8a0"/>
+
+  <rect x="284" y="100" width="190" height="70" rx="10" fill="#151c25" stroke="#e8b849"/>
+  <text x="379" y="132" text-anchor="middle" fill="#e8b849" font-family="sans-serif" font-size="13">별표(*) 변형?</text>
+  <text x="379" y="152" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">900101-1******</text>
+
+  <polygon points="484,135 514,135 514,127 538,140 514,153 514,145 484,145" fill="#3db8a0"/>
+
+  <rect x="548" y="88" width="200" height="94" rx="10" fill="#151c25" stroke="#3db8a0"/>
+  <text x="648" y="122" text-anchor="middle" fill="#3db8a0" font-family="sans-serif" font-size="13">검증식</text>
+  <text x="648" y="144" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">주민 · Luhn</text>
+  <text x="648" y="162" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">사업자 · 법인</text>
+
+  <rect x="40" y="230" width="220" height="64" rx="10" fill="#3a1f1f" stroke="#e07a6a"/>
+  <text x="150" y="268" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="14">이미 마스킹됨</text>
+
+  <rect x="300" y="230" width="220" height="64" rx="10" fill="#3a2f14" stroke="#e8b849"/>
+  <text x="410" y="268" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="14">의심 (검증 실패)</text>
+
+  <rect x="560" y="230" width="220" height="64" rx="10" fill="#1f3a28" stroke="#3db8a0"/>
+  <text x="670" y="268" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="14">확정 → 마스킹</text>
+
+  <rect x="800" y="230" width="160" height="64" rx="10" fill="#16324d" stroke="#3db8a0"/>
+  <text x="880" y="258" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">잔여 스캔</text>
+  <text x="880" y="278" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="11">같은 process_file</text>
+
+  <text x="40" y="340" fill="#93a0b0" font-family="sans-serif" font-size="13">DOCX는 본문만이 아니라 word/header·footer·footnotes·comments 단락도 같은 오프셋 재작성 경로를 탑니다.</text>
+  <text x="40" y="364" fill="#93a0b0" font-family="sans-serif" font-size="13">XLSX 공유 문자열 인덱스(&lt;c t="s"&gt;)는 값이 아니므로 카드·주민 오탐으로 쓰지 않습니다.</text>
+  <text x="40" y="396" fill="#c5e8d4" font-family="sans-serif" font-size="13">파일은 서버로 나가지 않습니다. 결정은 데이터(확정/의심/잔여)로 남습니다.</text>
+</svg>

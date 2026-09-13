@@ -8,19 +8,31 @@ use crate::types::{Extracted, FileFormat, ParaLoc, Paragraph};
 
 pub fn extract_docx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
     let parts = read_zip(bytes)?;
-    let xml = part_text(&parts, "word/document.xml").unwrap_or_default();
-    let paras = docx_paragraphs(&xml);
     let mut paragraphs = Vec::new();
-    for (i, t) in paras.into_iter().enumerate() {
-        paragraphs.push(Paragraph {
-            index: i,
-            text: t,
-            full_byte_start: 0,
-            loc: ParaLoc::ZipXml {
-                inner_path: "word/document.xml".into(),
-                para_ord: i,
-            },
-        });
+    let mut names: Vec<String> = parts
+        .iter()
+        .map(|(n, _)| n.replace('\\', "/"))
+        .filter(|n| is_docx_text_part(n))
+        .collect();
+    names.sort();
+    // Body first so table order stays predictable, then headers/footers/notes.
+    names.sort_by_key(|n| if n == "word/document.xml" { 0 } else { 1 });
+    for name in names {
+        let Some((_, data)) = parts.iter().find(|(n, _)| n.replace('\\', "/") == name) else {
+            continue;
+        };
+        let xml = String::from_utf8_lossy(data);
+        for (i, t) in docx_paragraphs(&xml).into_iter().enumerate() {
+            paragraphs.push(Paragraph {
+                index: paragraphs.len(),
+                text: t,
+                full_byte_start: 0,
+                loc: ParaLoc::ZipXml {
+                    inner_path: name.clone(),
+                    para_ord: i,
+                },
+            });
+        }
     }
     Ok(super::finish(
         filename,
@@ -31,6 +43,11 @@ pub fn extract_docx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         None,
         Some(parts),
     ))
+}
+
+fn is_docx_text_part(name: &str) -> bool {
+    let n = name.replace('\\', "/");
+    n.starts_with("word/") && n.ends_with(".xml") && !n.contains("/_rels/")
 }
 
 pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
@@ -209,95 +226,103 @@ pub fn rewrite_shared_strings(xml: &str, new_texts: &[String]) -> String {
 
 pub fn xlsx_inline_and_values(xml: &str) -> Vec<String> {
     let mut out = Vec::new();
-    // inlineStr
     let mut rest = xml;
-    while let Some(s) = rest.find("<is>") {
-        let after = &rest[s..];
-        let Some(e) = after.find("</is>") else {
+    loop {
+        let a = rest.find("<c ");
+        let b = rest.find("<c>");
+        let start = match (a, b) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (Some(x), None) => Some(x),
+            (None, Some(y)) => Some(y),
+            _ => None,
+        };
+        let Some(s) = start else {
             break;
         };
-        out.push(concat_local_t(&after[..e], "t"));
-        rest = &after[e + 5..];
-    }
-    // numeric cell values (may be account/card numbers)
-    let mut rest = xml;
-    while let Some(s) = rest.find("<v>") {
-        let after = &rest[s + 3..];
-        if let Some(e) = after.find("</v>") {
-            out.push(xml_unescape(&after[..e]));
-            rest = &after[e + 4..];
-        } else {
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
             break;
+        };
+        let open = &after[..=gt];
+        let shared = open.contains("t=\"s\"") || open.contains("t='s'");
+        let Some(end_rel) = after.find("</c>") else {
+            break;
+        };
+        let cell = &after[..end_rel];
+        if !shared {
+            if let Some(is) = cell.find("<is>") {
+                if let Some(ie) = cell[is..].find("</is>") {
+                    out.push(concat_local_t(&cell[is..is + ie], "t"));
+                }
+            } else if let Some(vs) = cell.find("<v>") {
+                let inner = &cell[vs + 3..];
+                if let Some(ve) = inner.find("</v>") {
+                    out.push(xml_unescape(&inner[..ve]));
+                }
+            }
         }
+        rest = &after[end_rel + 4..];
     }
     out
 }
 
 pub fn rewrite_sheet_values(xml: &str, new_texts: &[String]) -> String {
-    let mut rebuilt = xml.to_string();
-    // Replace <v> contents in order for the numeric values we extracted after inlineStr.
-    // Safer: replace concatenated t in <is> first, then <v>.
-    let inline_count = xml.matches("<is>").count();
-    let mut idx = 0usize;
-    rebuilt = replace_seq_inner(&rebuilt, "<is>", "</is>", "t", new_texts, &mut idx);
-    // skip already used inline texts
-    let rest = if new_texts.len() > inline_count {
-        &new_texts[inline_count..]
-    } else {
-        &[]
-    };
-    let mut v_idx = 0usize;
     let mut out = String::new();
-    let mut remain = rebuilt.as_str();
-    while let Some(s) = remain.find("<v>") {
-        out.push_str(&remain[..s + 3]);
-        let after = &remain[s + 3..];
-        if let Some(e) = after.find("</v>") {
-            if v_idx < rest.len() {
-                out.push_str(&xml_escape(&rest[v_idx]));
-            } else {
-                out.push_str(&after[..e]);
-            }
-            v_idx += 1;
-            out.push_str("</v>");
-            remain = &after[e + 4..];
-        } else {
-            out.push_str(after);
-            remain = "";
+    let mut rest = xml;
+    let mut idx = 0usize;
+    loop {
+        let a = rest.find("<c ");
+        let b = rest.find("<c>");
+        let start = match (a, b) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (Some(x), None) => Some(x),
+            (None, Some(y)) => Some(y),
+            _ => None,
+        };
+        let Some(s) = start else {
+            out.push_str(rest);
             break;
+        };
+        out.push_str(&rest[..s]);
+        let after = &rest[s..];
+        let Some(end_rel) = after.find("</c>") else {
+            out.push_str(after);
+            break;
+        };
+        let cell = &after[..end_rel + 4];
+        let gt = after.find('>').unwrap_or(0);
+        let open = &after[..=gt];
+        let shared = open.contains("t=\"s\"") || open.contains("t='s'");
+        if !shared && idx < new_texts.len() {
+            if cell.contains("<is>") {
+                out.push_str(&replace_first_t(cell, "t", &new_texts[idx]));
+                idx += 1;
+            } else if cell.contains("<v>") {
+                out.push_str(&replace_v(cell, &new_texts[idx]));
+                idx += 1;
+            } else {
+                out.push_str(cell);
+            }
+        } else {
+            out.push_str(cell);
         }
+        rest = &after[end_rel + 4..];
     }
-    out.push_str(remain);
     out
 }
 
-fn replace_seq_inner(
-    xml: &str,
-    open: &str,
-    close: &str,
-    t_local: &str,
-    new_texts: &[String],
-    idx: &mut usize,
-) -> String {
+fn replace_v(cell: &str, new_text: &str) -> String {
+    let Some(vs) = cell.find("<v>") else {
+        return cell.to_string();
+    };
+    let after = &cell[vs + 3..];
+    let Some(ve) = after.find("</v>") else {
+        return cell.to_string();
+    };
     let mut out = String::new();
-    let mut rest = xml;
-    while let Some(s) = rest.find(open) {
-        out.push_str(&rest[..s]);
-        let after = &rest[s..];
-        let Some(e) = after.find(close) else {
-            out.push_str(after);
-            return out;
-        };
-        let block = &after[..e + close.len()];
-        if *idx < new_texts.len() {
-            out.push_str(&replace_first_t(block, t_local, &new_texts[*idx]));
-        } else {
-            out.push_str(block);
-        }
-        *idx += 1;
-        rest = &after[e + close.len()..];
-    }
-    out.push_str(rest);
+    out.push_str(&cell[..vs + 3]);
+    out.push_str(&xml_escape(new_text));
+    out.push_str(&cell[vs + 3 + ve..]);
     out
 }
 

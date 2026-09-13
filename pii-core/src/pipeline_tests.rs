@@ -673,6 +673,88 @@ fn unknown_zip_is_not_parsed_as_txt() {
     assert!(out.report.findings.is_empty());
 }
 
+fn docx_with_header_only(header: &str, body: &str) -> Vec<u8> {
+    let body_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>{}</w:t></w:r></w:p></w:body></w:document>"#,
+        xml_escape(body)
+    );
+    let header_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:p><w:r><w:t>{}</w:t></w:r></w:p></w:hdr>"#,
+        xml_escape(header)
+    );
+    write_zip(&[
+        ("word/document.xml".into(), body_xml.into_bytes()),
+        ("word/header1.xml".into(), header_xml.into_bytes()),
+    ])
+    .expect("docx header zip")
+}
+
+fn xlsx_shared_index_looks_like_card(index: &str) -> Vec<u8> {
+    let ss = r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>hello</t></si></sst>"#;
+    let sheet = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>{index}</v></c></row></sheetData></worksheet>"#
+    );
+    write_zip(&[
+        ("xl/sharedStrings.xml".into(), ss.as_bytes().to_vec()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.into_bytes()),
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+    ])
+    .expect("xlsx index zip")
+}
+
+#[test]
+fn process_file_masks_pii_in_docx_header() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = docx_with_header_only(&format!("머리말 {rrn}"), "본문만");
+    let out = process_file("header.docx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Docx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "header RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked docx");
+    let again = crate::parse::extract("header.docx", &masked).unwrap();
+    assert!(
+        !again.full_text.contains(&rrn),
+        "header rewrite left raw: {}",
+        again.full_text
+    );
+    assert!(
+        again.full_text.contains("본문만"),
+        "body lost: {}",
+        again.full_text
+    );
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_shared_string_index_is_not_card() {
+    let card = card_string();
+    let digits: String = card.chars().filter(|c| c.is_ascii_digit()).collect();
+    let bytes = xlsx_shared_index_looks_like_card(&digits);
+    let out = process_file("idx.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .all(|f| f.rule_id != "credit_card"),
+        "shared-string index must not be a card: {:?}",
+        out.report.findings
+    );
+}
+
 #[test]
 fn driver_passport_bank_health_confirmed_via_process_file() {
     let license = "서울-01-123456-90";

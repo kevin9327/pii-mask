@@ -18,10 +18,12 @@
     <main>
       <section id="drop" class="drop" tabindex="0">
         <input id="file-input" type="file" multiple hidden />
+        <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
         <div>
           <strong>폴더 또는 여러 파일을 여기에 놓으세요</strong>
           <p>HWP, HWPX, TXT, CSV, JSON, PDF, DOCX, XLSX</p>
           <button type="button" id="pick">파일 선택</button>
+          <button type="button" id="pick-folder">폴더 선택</button>
         </div>
       </section>
 
@@ -77,6 +79,7 @@
             <button type="button" id="dl-csv" disabled>전체 CSV</button>
             <button type="button" id="dl-json" disabled>전체 JSON</button>
             <button type="button" id="dl-html" disabled>전체 HTML</button>
+            <p class="warn">파일별 리포트는 각 파일 다운로드 줄의 CSV/JSON/HTML 버튼입니다.</p>
           </div>
           <div id="file-dls" class="file-dls"></div>
         </div>

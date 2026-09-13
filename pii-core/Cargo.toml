@@ -10,11 +10,11 @@ name = "pii_core"
 path = "src/lib.rs"
 
 [dependencies]
-# HWP/HWPX codec from the local docagent git checkout (not rhwp).
-docagent-model = { git = "file:///C:/Users/swsz9/docagent" }
-docagent-hwp5 = { git = "file:///C:/Users/swsz9/docagent" }
-docagent-hwpx = { git = "file:///C:/Users/swsz9/docagent" }
-docagent-hwp3 = { git = "file:///C:/Users/swsz9/docagent" }
+# HWP/HWPX codec from docagent (not rhwp).
+docagent-model = { git = "https://github.com/kevin9327/docagent" }
+docagent-hwp5 = { git = "https://github.com/kevin9327/docagent" }
+docagent-hwpx = { git = "https://github.com/kevin9327/docagent" }
+docagent-hwp3 = { git = "https://github.com/kevin9327/docagent" }
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true

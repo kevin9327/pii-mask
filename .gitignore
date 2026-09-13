@@ -1,4 +1,20 @@
+# Rust
 /target
+**/*.rs.bk
+*.pdb
+
+# Web (generated wasm-bindgen output lives in /web/src/wasm)
 /web/node_modules
 /web/dist
 /web/src/wasm
+/web/.vite
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/

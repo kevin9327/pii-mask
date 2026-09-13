@@ -228,11 +228,18 @@ fn validate_passport(raw: &str, stars: bool) -> Verdict {
     if !(1..=2).contains(&letters) {
         return Verdict::Skip;
     }
-    if stars {
-        return Verdict::AlreadyMasked;
-    }
     let rest: String = raw.chars().skip(letters).collect();
-    if rest.chars().all(|c| c.is_ascii_digit()) && (7..=8).contains(&rest.len()) {
+    if !rest.chars().all(|c| c.is_ascii_digit() || c == '*') {
+        return Verdict::Skip;
+    }
+    if stars {
+        // M******* (7) / AB****** (6) and full 7–8 digit tails.
+        if (6..=8).contains(&rest.len()) {
+            Verdict::AlreadyMasked
+        } else {
+            Verdict::Skip
+        }
+    } else if rest.chars().all(|c| c.is_ascii_digit()) && (7..=8).contains(&rest.len()) {
         Verdict::Confirmed
     } else {
         Verdict::Skip
@@ -284,23 +291,30 @@ fn validate_bank(raw: &str, stars: bool) -> Verdict {
 }
 
 fn validate_ip(raw: &str, stars: bool) -> Verdict {
-    if stars {
-        return Verdict::AlreadyMasked;
-    }
     if raw.contains('.') {
         let parts: Vec<&str> = raw.split('.').collect();
         if parts.len() != 4 {
             return Verdict::Skip;
         }
-        for p in parts {
+        let last_star = parts[3] == "*";
+        let n = if last_star { 3 } else { 4 };
+        for p in parts.iter().take(n) {
             match p.parse::<u32>() {
                 Ok(v) if v <= 255 => {}
                 _ => return Verdict::Skip,
             }
         }
-        Verdict::Confirmed
+        if last_star || stars {
+            Verdict::AlreadyMasked
+        } else {
+            Verdict::Confirmed
+        }
     } else if raw.contains(':') {
-        Verdict::Confirmed
+        if stars {
+            Verdict::AlreadyMasked
+        } else {
+            Verdict::Confirmed
+        }
     } else {
         Verdict::Skip
     }

@@ -1,10 +1,12 @@
-import type { FileReport, ProcessResult, WorkerIn, WorkerOut } from "./types";
+import type { FileReport, ProcessResult, WorkerOut, WorkerRequest } from "./types";
 
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
 
 const drop = document.getElementById("drop") as HTMLElement;
 const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const pick = document.getElementById("pick") as HTMLButtonElement;
+const folderInput = document.getElementById("folder-input") as HTMLInputElement;
+const pickFolder = document.getElementById("pick-folder") as HTMLButtonElement;
 const runBtn = document.getElementById("run") as HTMLButtonElement;
 const clearBtn = document.getElementById("clear") as HTMLButtonElement;
 const statusEl = document.getElementById("status") as HTMLElement;
@@ -42,21 +44,30 @@ worker.onmessage = (ev: MessageEvent<WorkerOut>) => {
   }
 };
 
-function call(payload: Omit<WorkerIn, "id">): Promise<WorkerOut> {
+function call(payload: WorkerRequest): Promise<WorkerOut> {
   const id = reqId++;
   return new Promise((resolve, reject) => {
     pending.set(id, (msg) => {
       if (msg.type === "error") reject(new Error(msg.message));
       else resolve(msg);
     });
-    worker.postMessage({ ...payload, id } as WorkerIn);
+    worker.postMessage({ ...payload, id });
   });
 }
 
+function blobPart(data: Uint8Array): BlobPart {
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+}
+
 pick.onclick = () => fileInput.click();
+pickFolder.onclick = () => folderInput.click();
 fileInput.onchange = async () => {
   if (fileInput.files) await addFileList(fileInput.files);
   fileInput.value = "";
+};
+folderInput.onchange = async () => {
+  if (folderInput.files) await addFileList(folderInput.files);
+  folderInput.value = "";
 };
 
 drop.addEventListener("dragover", (e) => {
@@ -97,7 +108,12 @@ async function walkEntry(entry: FileSystemEntry, out: { name: string; data: Arra
     out.push({ name: file.name, data: await file.arrayBuffer() });
   } else if (entry.isDirectory) {
     const reader = (entry as FileSystemDirectoryEntry).createReader();
-    const children = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+    const children: FileSystemEntry[] = [];
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) break;
+      children.push(...batch);
+    }
     for (const child of children) await walkEntry(child, out);
   }
 }
@@ -160,9 +176,14 @@ function render(results: ProcessResult[]) {
   }
   for (const r of results) {
     const report = r.report;
+    if (report.warnings.length) {
+      const wr = document.createElement("tr");
+      wr.innerHTML = `<td>${esc(report.filename)}</td><td colspan="4">${warn(report)}</td>`;
+      rows.appendChild(wr);
+    }
     if (!report.summaries.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${esc(report.filename)}</td><td colspan="4">탐지 없음${warn(report)}</td>`;
+      tr.innerHTML = `<td>${esc(report.filename)}</td><td colspan="4">탐지 없음</td>`;
       rows.appendChild(tr);
     }
     for (const s of report.summaries) {
@@ -174,19 +195,28 @@ function render(results: ProcessResult[]) {
         <td><code>${esc(s.preview)}</code></td>`;
       rows.appendChild(tr);
     }
+    if (report.diffs.length) {
+      const h = document.createElement("h3");
+      h.textContent = report.filename;
+      diffs.appendChild(h);
+    }
     for (const d of report.diffs) {
       const box = document.createElement("div");
       box.className = "diff";
       box.innerHTML = `<div class="before">${esc(d.before)}</div><div class="after">${esc(d.after)}</div>`;
       diffs.appendChild(box);
     }
+    const stem = report.filename.replace(/\.[^.]+$/, "");
+    addDl(fileDls, `${stem}-report.csv`, () => downloadOneReport(r, "csv"));
+    addDl(fileDls, `${stem}-report.json`, () => downloadOneReport(r, "json"));
+    addDl(fileDls, `${stem}-report.html`, () => downloadOneReport(r, "html"));
     if (r.masked && r.outputName) {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = r.outputName + (r.fallbackNote ? " (대체)" : "");
-      const blob = new Blob([r.masked]);
+      const bytes = r.masked;
       const name = r.outputName;
-      b.onclick = () => downloadBlob(blob, name);
+      b.onclick = () => downloadBlob(new Blob([blobPart(bytes)]), name);
       fileDls.appendChild(b);
     }
   }
@@ -232,18 +262,37 @@ dlCsv.onclick = () => downloadReports("csv");
 dlJson.onclick = () => downloadReports("json");
 dlHtml.onclick = () => downloadReports("html");
 
+function addDl(parent: HTMLElement, label: string, fn: () => void) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = label;
+  b.onclick = fn;
+  parent.appendChild(b);
+}
+
+async function downloadOneReport(r: ProcessResult, kind: "csv" | "json" | "html") {
+  const reportsJson = JSON.stringify([r.report]);
+  const msg = await call({ type: "reports", reportsJson });
+  if (msg.type !== "reports") return;
+  const map = { csv: msg.csv, json: msg.json, html: msg.html };
+  const mime = {
+    csv: "text/csv;charset=utf-8",
+    json: "application/json;charset=utf-8",
+    html: "text/html;charset=utf-8",
+  };
+  const stem = r.report.filename.replace(/\.[^.]+$/, "");
+  downloadBlob(new Blob([map[kind]], { type: mime[kind] }), `${stem}-report.${kind}`);
+}
+
 dlMasked.onclick = async () => {
   const pack = last
     .filter((r) => r.masked && r.outputName)
     .map((r) => ({
       name: r.outputName as string,
-      data: (r.masked as Uint8Array).buffer.slice(
-        (r.masked as Uint8Array).byteOffset,
-        (r.masked as Uint8Array).byteOffset + (r.masked as Uint8Array).byteLength,
-      ),
+      data: blobPart(r.masked as Uint8Array) as ArrayBuffer,
     }));
   const msg = await call({ type: "zip", files: pack });
   if (msg.type === "zip") {
-    downloadBlob(new Blob([msg.data], { type: "application/zip" }), "masked-files.zip");
+    downloadBlob(new Blob([blobPart(msg.data)], { type: "application/zip" }), "masked-files.zip");
   }
 };

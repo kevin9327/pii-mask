@@ -438,3 +438,94 @@ fn table_preview_masks_value_itself() {
     );
     assert!(preview.contains("앞문맥") && preview.contains("뒷문맥"));
 }
+
+#[test]
+fn already_masked_remaining_types_via_process_file() {
+    let card = "4111-****-****-1111";
+    let license = "서울-12-******-**";
+    let passport_m = "M*******";
+    let passport_ab = "AB******";
+    let account = "110-***-******";
+    let email = "u***@example.com";
+    let ip = "192.168.0.*";
+    let text = format!(
+        "카드 {card} 면허 {license} 여권 {passport_m} {passport_ab} 계좌 {account} 메일 {email} 서버 {ip}"
+    );
+    let hits = confirmed_raws("masked.txt", text.as_bytes());
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "credit_card" && raw == card && *c == Confidence::AlreadyMasked
+        }),
+        "masked card not classified: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "driver_license" && raw == license && *c == Confidence::AlreadyMasked
+        }),
+        "masked driver license not classified: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "passport" && raw == passport_m && *c == Confidence::AlreadyMasked
+        }),
+        "masked passport M******* not classified: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "passport" && raw == passport_ab && *c == Confidence::AlreadyMasked
+        }),
+        "masked passport AB****** not classified: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "bank_account" && raw == account && *c == Confidence::AlreadyMasked
+        }),
+        "masked bank account not classified: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "email" && raw == email && *c == Confidence::AlreadyMasked
+        }),
+        "masked email not classified: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "ip_address" && raw == ip && *c == Confidence::AlreadyMasked
+        }),
+        "masked IP not classified: {hits:?}"
+    );
+}
+
+#[test]
+fn driver_passport_bank_health_confirmed_via_process_file() {
+    let license = "서울-01-123456-90";
+    let passport = "M12345678";
+    let account = "110-123-456789";
+    let health = "123456-12345";
+    let text = format!("면허 {license} 여권 {passport} 계좌 {account} 보험 {health}");
+    let hits = confirmed_raws("ids.txt", text.as_bytes());
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "driver_license" && raw == license && *c == Confidence::Confirmed
+        }),
+        "driver license missed: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "passport" && raw == passport && *c == Confidence::Confirmed
+        }),
+        "passport missed: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "bank_account" && raw == account && *c == Confidence::Confirmed
+        }),
+        "bank account missed: {hits:?}"
+    );
+    assert!(
+        hits.iter().any(|(id, raw, c)| {
+            id == "health_insurance" && raw == health && *c == Confidence::Confirmed
+        }),
+        "health insurance missed: {hits:?}"
+    );
+}

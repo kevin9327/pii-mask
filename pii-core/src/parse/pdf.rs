@@ -91,5 +91,18 @@ fn decode_pdf_bytes(bytes: &[u8]) -> String {
             .collect();
         return String::from_utf16_lossy(&u16s);
     }
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        let u16s: Vec<u16> = bytes[2..]
+            .chunks(2)
+            .filter(|c| c.len() == 2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        return String::from_utf16_lossy(&u16s);
+    }
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        if s.chars().any(|c| c as u32 > 127) {
+            return s.to_string();
+        }
+    }
     bytes.iter().map(|&b| b as char).collect()
 }

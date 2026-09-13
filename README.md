@@ -1,5 +1,7 @@
 # PII Mask — 브라우저 전용 개인정보 탐지·마스킹
 
+저장소: https://github.com/kevin9327/pii-mask
+
 모든 처리는 클라이언트에서만 수행됩니다. 파일은 어떤 서버로도 전송되지 않습니다.
 
 ## 구조
@@ -8,7 +10,7 @@
 - `pii-wasm` — wasm-bindgen 바인딩
 - `web` — Vite + TypeScript (프레임워크 없음). 무거운 작업은 Web Worker
 
-HWP/HWPX 는 [docagent](https://github.com/kevin9327/docagent) 코덱(`docagent-hwp5`, `docagent-hwpx`)으로 텍스트·단락을 추출하고, 같은 IR 을 써서 마스킹본을 다시 씁니다.
+HWP/HWPX/HWP3 는 [docagent](https://github.com/kevin9327/docagent) 코덱(`docagent-hwp5`, `docagent-hwpx`, `docagent-hwp3`)으로 텍스트·단락을 추출하고, 같은 IR 을 써서 마스킹본을 다시 씁니다. rhwp 는 사용하지 않습니다.
 
 ## 실행
 

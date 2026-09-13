@@ -47,10 +47,14 @@ export interface ProcessResult {
   fallbackNote: string | null;
 }
 
-export type WorkerIn =
-  | { type: "process"; id: number; files: { name: string; data: ArrayBuffer }[]; extraRules: string; maskMode: string }
-  | { type: "reports"; id: number; reportsJson: string }
-  | { type: "zip"; id: number; files: { name: string; data: ArrayBuffer }[] };
+export type FileBlob = { name: string; data: ArrayBuffer };
+
+export type WorkerRequest =
+  | { type: "process"; files: FileBlob[]; extraRules: string; maskMode: string }
+  | { type: "reports"; reportsJson: string }
+  | { type: "zip"; files: FileBlob[] };
+
+export type WorkerIn = WorkerRequest & { id: number };
 
 export type WorkerOut =
   | { type: "ready" }

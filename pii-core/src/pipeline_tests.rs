@@ -389,6 +389,46 @@ fn pptx_with_text(text: &str) -> Vec<u8> {
     .expect("pptx zip")
 }
 
+fn odf_manifest() -> Vec<u8> {
+    b"<?xml version=\"1.0\"?><manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\"/>".to_vec()
+}
+
+fn odt_with_text(text: &str) -> Vec<u8> {
+    let content = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+<office:body><office:text>
+<text:p>{}</text:p>
+</office:text></office:body>
+</office:document-content>"#,
+        xml_escape(text)
+    );
+    write_zip(&[
+        ("META-INF/manifest.xml".into(), odf_manifest()),
+        ("content.xml".into(), content.into_bytes()),
+    ])
+    .expect("odt zip")
+}
+
+fn ods_with_text(text: &str) -> Vec<u8> {
+    let content = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+<office:body><office:spreadsheet>
+<table:table><table:table-row><table:table-cell>
+<text:p>{}</text:p>
+</table:table-cell></table:table-row></table:table>
+</office:spreadsheet></office:body>
+</office:document-content>"#,
+        xml_escape(text)
+    );
+    write_zip(&[
+        ("META-INF/manifest.xml".into(), odf_manifest()),
+        ("content.xml".into(), content.into_bytes()),
+    ])
+    .expect("ods zip")
+}
+
 fn pptx_with_notes_only(notes: &str, slide: &str) -> Vec<u8> {
     write_zip(&[
         ("ppt/presentation.xml".into(), b"<p:presentation/>".to_vec()),
@@ -1011,6 +1051,18 @@ fn every_supported_extension_detects_and_masks_via_process_file() {
         &rrn,
     );
     assert_detect_and_mask(
+        "sample.odt",
+        &odt_with_text(&text),
+        crate::FileFormat::Odt,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.ODS",
+        &ods_with_text(&text),
+        crate::FileFormat::Ods,
+        &rrn,
+    );
+    assert_detect_and_mask(
         "sample.hwpx",
         &hwpx_with_text(&text),
         crate::FileFormat::Hwpx,
@@ -1559,6 +1611,46 @@ fn process_file_xlsx_chart_title_is_masked() {
     let again = crate::parse::extract("chart.xlsx", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "chart title left raw: {}", again.full_text);
     assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_odt_paragraph_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = odt_with_text(&format!("공문 {rrn}"));
+    let out = process_file("memo.odt", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Odt);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "ODT RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked odt");
+    let again = crate::parse::extract("memo.odt", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "odt left raw: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_ods_cell_text_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = ods_with_text(&format!("셀 {rrn}"));
+    let out = process_file("grid.ods", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Ods);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "ODS RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked ods");
+    let again = crate::parse::extract("grid.ods", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "ods left raw: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

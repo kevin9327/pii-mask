@@ -13,6 +13,8 @@ pub enum FileFormat {
     Docx,
     Xlsx,
     Pptx,
+    Odt,
+    Ods,
     Unknown,
 }
 
@@ -29,6 +31,8 @@ impl FileFormat {
             FileFormat::Docx => "docx",
             FileFormat::Xlsx => "xlsx",
             FileFormat::Pptx => "pptx",
+            FileFormat::Odt => "odt",
+            FileFormat::Ods => "ods",
             FileFormat::Unknown => "unknown",
         }
     }

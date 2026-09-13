@@ -67,27 +67,29 @@ pub fn rewrite(
                 }
             }
         }
-        FileFormat::Docx | FileFormat::Xlsx | FileFormat::Pptx => match rewrite_zip(extracted, &masked_paras) {
-            Ok(bytes) => Ok(RewriteOut {
-                bytes,
-                filename: extracted.filename.clone(),
-                fallback_note: None,
-                diffs,
-                masked_paragraphs: masked_paras,
-            }),
-            Err(e) => {
-                let txt = masked_paras.join("\n");
-                Ok(RewriteOut {
-                    bytes: txt.into_bytes(),
-                    filename: replace_ext(&extracted.filename, "txt"),
-                    fallback_note: Some(format!(
-                        "원 포맷 재작성에 실패하여 TXT로 대체했습니다: {e}"
-                    )),
+        FileFormat::Docx | FileFormat::Xlsx | FileFormat::Pptx | FileFormat::Odt | FileFormat::Ods => {
+            match rewrite_zip(extracted, &masked_paras) {
+                Ok(bytes) => Ok(RewriteOut {
+                    bytes,
+                    filename: extracted.filename.clone(),
+                    fallback_note: None,
                     diffs,
                     masked_paragraphs: masked_paras,
-                })
+                }),
+                Err(e) => {
+                    let txt = masked_paras.join("\n");
+                    Ok(RewriteOut {
+                        bytes: txt.into_bytes(),
+                        filename: replace_ext(&extracted.filename, "txt"),
+                        fallback_note: Some(format!(
+                            "원 포맷 재작성에 실패하여 TXT로 대체했습니다: {e}"
+                        )),
+                        diffs,
+                        masked_paragraphs: masked_paras,
+                    })
+                }
             }
-        },
+        }
         FileFormat::Pdf => {
             let txt = masked_paras.join("\n");
             Ok(RewriteOut {
@@ -319,6 +321,8 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             crate::parse::ooxml::rewrite_xlsx_comments(&xml, texts)
         } else if crate::parse::ooxml::is_drawingml_text_part(&key) {
             crate::parse::ooxml::rewrite_drawingml_paragraphs(&xml, texts)
+        } else if key == "content.xml" || key == "meta.xml" {
+            crate::parse::ooxml::rewrite_xml_text_nodes(&xml, texts)
         } else if key.starts_with("docProps/") {
             crate::parse::ooxml::rewrite_core_props(&xml, texts)
         } else {

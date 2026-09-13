@@ -336,6 +336,49 @@ pub fn is_drawingml_text_part(name: &str) -> bool {
             || n.starts_with("xl/charts/"))
 }
 
+pub fn extract_odf(filename: &str, bytes: &[u8], format: FileFormat) -> Result<Extracted> {
+    let parts = read_zip(bytes)?;
+    let mut paragraphs = Vec::new();
+    let mut names: Vec<String> = parts
+        .iter()
+        .map(|(n, _)| n.replace('\\', "/"))
+        .filter(|n| is_odf_text_part(n))
+        .collect();
+    names.sort();
+    names.sort_by_key(|n| if n == "content.xml" { 0 } else { 1 });
+    for name in names {
+        let Some((_, data)) = parts.iter().find(|(n, _)| n.replace('\\', "/") == name) else {
+            continue;
+        };
+        let xml = String::from_utf8_lossy(data);
+        for (i, t) in xml_text_nodes(&xml).into_iter().enumerate() {
+            paragraphs.push(Paragraph {
+                index: paragraphs.len(),
+                text: t,
+                full_byte_start: 0,
+                loc: ParaLoc::ZipXml {
+                    inner_path: name.clone(),
+                    para_ord: i,
+                },
+            });
+        }
+    }
+    Ok(super::finish(
+        filename,
+        format,
+        bytes.to_vec(),
+        paragraphs,
+        Vec::new(),
+        None,
+        Some(parts),
+    ))
+}
+
+fn is_odf_text_part(name: &str) -> bool {
+    let n = name.replace('\\', "/");
+    n == "content.xml" || n == "meta.xml"
+}
+
 fn is_pptx_text_part(name: &str) -> bool {
     let n = name.replace('\\', "/");
     if n.contains("/_rels/") {

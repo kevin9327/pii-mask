@@ -159,6 +159,20 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                 });
             }
         }
+        if key == "xl/workbook.xml" || key.ends_with("/workbook.xml") && key.contains("xl/") {
+            let xml = String::from_utf8_lossy(data).into_owned();
+            for (i, t) in xlsx_defined_name_texts(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: i,
+                    },
+                });
+            }
+        }
         if key.starts_with("xl/comments") && key.ends_with(".xml") {
             let xml = String::from_utf8_lossy(data).into_owned();
             for (i, t) in xlsx_comment_texts(&xml).into_iter().enumerate() {
@@ -351,6 +365,66 @@ fn replace_tag_inner(xml: &str, tag: &str, new_text: &str) -> String {
     out.push_str(&xml[..inner_start]);
     out.push_str(&xml_escape(new_text));
     out.push_str(&xml[inner_start + e..]);
+    out
+}
+
+pub fn xlsx_defined_name_texts(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(s) = find_open(rest, "definedName") {
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            break;
+        };
+        if after.as_bytes().get(gt.saturating_sub(1)) == Some(&b'/') {
+            rest = &after[gt + 1..];
+            continue;
+        }
+        let inner_start = gt + 1;
+        let Some(e) = after[inner_start..].find("</definedName>") else {
+            break;
+        };
+        let inner = xml_unescape(&after[inner_start..inner_start + e]);
+        if !inner.trim().is_empty() {
+            out.push(inner);
+        }
+        rest = &after[inner_start + e + 14..];
+    }
+    out
+}
+
+pub fn rewrite_xlsx_defined_names(xml: &str, new_texts: &[String]) -> String {
+    let mut out = String::new();
+    let mut rest = xml;
+    let mut idx = 0usize;
+    while let Some(s) = find_open(rest, "definedName") {
+        out.push_str(&rest[..s]);
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            out.push_str(after);
+            return out;
+        };
+        if after.as_bytes().get(gt.saturating_sub(1)) == Some(&b'/') {
+            out.push_str(&after[..=gt]);
+            rest = &after[gt + 1..];
+            continue;
+        }
+        let inner_start = gt + 1;
+        let Some(e) = after[inner_start..].find("</definedName>") else {
+            out.push_str(after);
+            return out;
+        };
+        out.push_str(&after[..inner_start]);
+        if idx < new_texts.len() {
+            out.push_str(&xml_escape(&new_texts[idx]));
+            idx += 1;
+        } else {
+            out.push_str(&after[inner_start..inner_start + e]);
+        }
+        out.push_str("</definedName>");
+        rest = &after[inner_start + e + 14..];
+    }
+    out.push_str(rest);
     out
 }
 

@@ -52,6 +52,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             loc: ParaLoc::Pdf { page: 0 },
         });
     }
+    for note in outline_titles(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     for note in annotation_and_field_text(&doc) {
         if note.trim().is_empty() {
             continue;
@@ -212,6 +224,61 @@ fn document_info_text(doc: &Document) -> Vec<String> {
         }
     }
     out
+}
+
+fn outline_titles(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(root) = doc.trailer.get(b"Root") else {
+        return out;
+    };
+    let Some(catalog) = resolve_obj(doc, root) else {
+        return out;
+    };
+    let Object::Dictionary(dict) = catalog else {
+        return out;
+    };
+    let Ok(outlines) = dict.get(b"Outlines") else {
+        return out;
+    };
+    let mut seen = std::collections::HashSet::new();
+    walk_outline(doc, outlines, &mut seen, &mut out, 0);
+    out
+}
+
+fn walk_outline(
+    doc: &Document,
+    obj: &Object,
+    seen: &mut std::collections::HashSet<(u32, u16)>,
+    out: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth > 64 {
+        return;
+    }
+    let Some(resolved) = resolve_obj(doc, obj) else {
+        return;
+    };
+    if let Object::Reference(id) = obj {
+        if !seen.insert(*id) {
+            return;
+        }
+    }
+    let Object::Dictionary(dict) = resolved else {
+        return;
+    };
+    if let Ok(title) = dict.get(b"Title") {
+        if let Some(s) = pdf_obj_string(doc, title) {
+            if !s.trim().is_empty() {
+                out.push(s);
+            }
+        }
+    }
+    if let Ok(first) = dict.get(b"First") {
+        walk_outline(doc, first, seen, out, depth + 1);
+    }
+    if let Ok(next) = dict.get(b"Next") {
+        walk_outline(doc, next, seen, out, depth + 1);
+    }
 }
 
 fn metadata_stream_text(doc: &Document, obj: &Object) -> Option<String> {

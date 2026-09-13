@@ -156,6 +156,55 @@ fn pdf_with_info_subject(subject: &str) -> Vec<u8> {
     body.into_bytes()
 }
 
+fn pdf_with_outline_title(title: &str) -> Vec<u8> {
+    let escaped = title.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let stream = "BT /F1 12 Tf 72 720 Td (visible) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /Outlines /Count 1 /First 7 0 R /Last 7 0 R >>".to_string(),
+        format!("<< /Title ({escaped}) /Parent 6 0 R >>"),
+    ];
+    let mut body = String::from("%PDF-1.4\n");
+    let mut offsets = vec![0u32];
+    for (i, obj) in objects.iter().enumerate() {
+        offsets.push(body.len() as u32);
+        body.push_str(&format!("{} 0 obj\n{obj}\nendobj\n", i + 1));
+    }
+    let xref_at = body.len();
+    body.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
+    body.push_str("0000000000 65535 f \n");
+    for off in offsets.iter().skip(1) {
+        body.push_str(&format!("{off:010} 00000 n \n"));
+    }
+    body.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    body.into_bytes()
+}
+
+fn xlsx_with_defined_name(formula: &str) -> Vec<u8> {
+    let wb = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></sheets>
+<definedNames><definedName name="HiddenPii">"{}"</definedName></definedNames>
+</workbook>"#,
+        xml_escape(formula)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>"#;
+    write_zip(&[
+        ("xl/workbook.xml".into(), wb.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+    ])
+    .expect("xlsx definedName zip")
+}
+
 fn xlsx_with_print_header(header: &str) -> Vec<u8> {
     let sheet = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1180,6 +1229,45 @@ fn process_file_docx_core_description_is_masked() {
     let again = crate::parse::extract("core.docx", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "core prop left raw: {}", again.full_text);
     assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_defined_name_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_defined_name(&rrn);
+    let out = process_file("name.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "definedName RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked definedName");
+    let again = crate::parse::extract("name.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "definedName left raw: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pdf_outline_title_is_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_outline_title(&format!("북마크 {rrn}"));
+    let out = process_file("bm.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF outline title RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
+    assert!(!masked.contains(&rrn), "outline PII left: {masked}");
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

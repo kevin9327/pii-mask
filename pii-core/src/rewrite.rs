@@ -311,6 +311,8 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             };
             let xml = rewrite_sheet_values(&xml, cell_texts);
             crate::parse::ooxml::rewrite_xlsx_header_footers(&xml, hf_texts)
+        } else if key == "xl/workbook.xml" || key.ends_with("/workbook.xml") {
+            crate::parse::ooxml::rewrite_xlsx_defined_names(&xml, texts)
         } else if key.starts_with("xl/comments") {
             crate::parse::ooxml::rewrite_xlsx_comments(&xml, texts)
         } else if key.starts_with("docProps/") {

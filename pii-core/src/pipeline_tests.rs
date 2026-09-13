@@ -205,6 +205,64 @@ fn xlsx_with_defined_name(formula: &str) -> Vec<u8> {
     .expect("xlsx definedName zip")
 }
 
+fn pdf_with_open_action_js(script: &str) -> Vec<u8> {
+    let escaped = script.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let stream = "BT /F1 12 Tf 72 720 Td (visible) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction 6 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        format!("<< /S /JavaScript /JS ({escaped}) >>"),
+    ];
+    let mut body = String::from("%PDF-1.4\n");
+    let mut offsets = vec![0u32];
+    for (i, obj) in objects.iter().enumerate() {
+        offsets.push(body.len() as u32);
+        body.push_str(&format!("{} 0 obj\n{obj}\nendobj\n", i + 1));
+    }
+    let xref_at = body.len();
+    body.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
+    body.push_str("0000000000 65535 f \n");
+    for off in offsets.iter().skip(1) {
+        body.push_str(&format!("{off:010} 00000 n \n"));
+    }
+    body.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    body.into_bytes()
+}
+
+fn xlsx_with_chart_title(title: &str, cell: &str) -> Vec<u8> {
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    let chart = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<c:chart><c:title><c:tx><c:rich>
+<a:p><a:r><a:t>{}</a:t></a:r></a:p>
+</c:rich></c:tx></c:title><c:plotArea/></c:chart>
+</c:chartSpace>"#,
+        xml_escape(title)
+    );
+    write_zip(&[
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+        ("xl/charts/chart1.xml".into(), chart.into_bytes()),
+    ])
+    .expect("xlsx chart zip")
+}
+
 fn xlsx_with_print_header(header: &str) -> Vec<u8> {
     let sheet = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1460,6 +1518,46 @@ fn process_file_xlsx_drawing_textbox_is_masked() {
     let masked = out.masked_bytes.expect("masked drawing");
     let again = crate::parse::extract("box.xlsx", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "drawing left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pdf_open_action_js_is_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_open_action_js(&format!("var id='{rrn}';"));
+    let out = process_file("js.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF OpenAction JS RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
+    assert!(!masked.contains(&rrn), "JS PII left: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_chart_title_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_chart_title(&format!("실적 {rrn}"), "본문만");
+    let out = process_file("chart.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "XLSX chart title RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked chart");
+    let again = crate::parse::extract("chart.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "chart title left raw: {}", again.full_text);
     assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }

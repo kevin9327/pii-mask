@@ -76,6 +76,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             loc: ParaLoc::Pdf { page: 0 },
         });
     }
+    for note in javascript_and_open_action_text(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     if !any_text {
         warnings.push("텍스트 없음 (스캔 PDF이거나 텍스트 레이어가 없습니다. OCR은 지원하지 않습니다).".into());
     }
@@ -291,6 +303,94 @@ fn metadata_stream_text(doc: &Document, obj: &Object) -> Option<String> {
     String::from_utf8(stream.content.clone())
         .ok()
         .or_else(|| Some(String::from_utf8_lossy(&stream.content).into_owned()))
+}
+
+/// Catalog /OpenAction and any dictionary /JS string or stream.
+fn javascript_and_open_action_text(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(root) = doc.trailer.get(b"Root") {
+        if let Some(catalog) = resolve_obj(doc, root) {
+            if let Object::Dictionary(dict) = catalog {
+                if let Ok(oa) = dict.get(b"OpenAction") {
+                    collect_js_from_obj(doc, oa, &mut out, 0);
+                }
+                if let Ok(aa) = dict.get(b"AA") {
+                    collect_js_from_obj(doc, aa, &mut out, 0);
+                }
+            }
+        }
+    }
+    for object in doc.objects.values() {
+        match object {
+            Object::Dictionary(dict) => {
+                if let Ok(js) = dict.get(b"JS") {
+                    if let Some(s) = pdf_js_payload(doc, js) {
+                        if !s.trim().is_empty() {
+                            out.push(s);
+                        }
+                    }
+                }
+            }
+            Object::Stream(stream) => {
+                if let Ok(js) = stream.dict.get(b"JS") {
+                    if let Some(s) = pdf_js_payload(doc, js) {
+                        if !s.trim().is_empty() {
+                            out.push(s);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn collect_js_from_obj(doc: &Document, obj: &Object, out: &mut Vec<String>, depth: usize) {
+    if depth > 8 {
+        return;
+    }
+    let Some(resolved) = resolve_obj(doc, obj) else {
+        return;
+    };
+    match resolved {
+        Object::Dictionary(dict) => {
+            if let Ok(js) = dict.get(b"JS") {
+                if let Some(s) = pdf_js_payload(doc, js) {
+                    if !s.trim().is_empty() {
+                        out.push(s);
+                    }
+                }
+            }
+            for key in [b"OpenAction".as_slice(), b"JavaScript".as_slice(), b"AA".as_slice()] {
+                if let Ok(v) = dict.get(key) {
+                    collect_js_from_obj(doc, v, out, depth + 1);
+                }
+            }
+        }
+        Object::Array(arr) => {
+            for item in arr {
+                collect_js_from_obj(doc, item, out, depth + 1);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn pdf_js_payload(doc: &Document, obj: &Object) -> Option<String> {
+    let resolved = resolve_obj(doc, obj)?;
+    match resolved {
+        Object::String(bytes, _) => Some(decode_pdf_bytes(bytes)),
+        Object::Stream(stream) => {
+            let mut stream = stream.clone();
+            let _ = stream.decompress();
+            Some(
+                String::from_utf8(stream.content.clone())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&stream.content).into_owned()),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// Sticky notes, markup /Contents, and AcroForm /V values — not the page

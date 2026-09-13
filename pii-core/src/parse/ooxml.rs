@@ -414,6 +414,51 @@ fn is_odf_text_part(name: &str) -> bool {
     n == "content.xml" || n == "meta.xml"
 }
 
+pub fn extract_epub(filename: &str, bytes: &[u8]) -> Result<Extracted> {
+    let parts = read_zip(bytes)?;
+    let mut paragraphs = Vec::new();
+    let mut names: Vec<String> = parts
+        .iter()
+        .map(|(n, _)| n.replace('\\', "/"))
+        .filter(|n| is_epub_text_part(n))
+        .collect();
+    names.sort();
+    for name in names {
+        let Some((_, data)) = parts.iter().find(|(n, _)| n.replace('\\', "/") == name) else {
+            continue;
+        };
+        let xml = String::from_utf8_lossy(data);
+        for (i, t) in xml_text_nodes(&xml).into_iter().enumerate() {
+            paragraphs.push(Paragraph {
+                index: paragraphs.len(),
+                text: t,
+                full_byte_start: 0,
+                loc: ParaLoc::ZipXml {
+                    inner_path: name.clone(),
+                    para_ord: i,
+                },
+            });
+        }
+    }
+    Ok(super::finish(
+        filename,
+        FileFormat::Epub,
+        bytes.to_vec(),
+        paragraphs,
+        Vec::new(),
+        None,
+        Some(parts),
+    ))
+}
+
+pub fn is_epub_text_part(name: &str) -> bool {
+    let n = name.replace('\\', "/").to_ascii_lowercase();
+    if n.contains("/_rels/") || n.starts_with("meta-inf/") {
+        return false;
+    }
+    n.ends_with(".xhtml") || n.ends_with(".html") || n.ends_with(".htm")
+}
+
 fn is_pptx_text_part(name: &str) -> bool {
     let n = name.replace('\\', "/");
     if n.contains("/_rels/") {

@@ -15,15 +15,16 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
         FileFormat::Xlsx => ooxml::extract_xlsx(filename, bytes),
         FileFormat::Pptx => ooxml::extract_pptx(filename, bytes),
         FileFormat::Odt | FileFormat::Ods => ooxml::extract_odf(filename, bytes, format),
+        FileFormat::Epub => ooxml::extract_epub(filename, bytes),
         FileFormat::Json | FileFormat::Csv | FileFormat::Txt => {
             text::extract(filename, bytes, format)
         }
         FileFormat::Unknown => {
             let mut warnings = vec![format!(
-                "지원하지 않는 형식입니다: {filename} (HWP/HWPX/TXT/CSV/JSON/PDF/DOCX/XLSX/PPTX/ODT/ODS)"
+                "지원하지 않는 형식입니다: {filename} (HWP/HWPX/TXT/CSV/JSON/PDF/DOCX/XLSX/PPTX/ODT/ODS/EPUB)"
             )];
             if looks_like_zip(bytes) {
-                warnings.push("ZIP 컨테이너이지만 DOCX/XLSX/HWPX/PPTX/ODT가 아닙니다.".into());
+                warnings.push("ZIP 컨테이너이지만 DOCX/XLSX/HWPX/PPTX/ODT/EPUB가 아닙니다.".into());
             }
             Ok(finish(
                 filename,
@@ -86,6 +87,9 @@ pub fn sniff(filename: &str, bytes: &[u8]) -> FileFormat {
         if matches!(ext.as_str(), "ods" | "ots") {
             return FileFormat::Ods;
         }
+        if zip_has(bytes, "META-INF/container.xml") || ext == "epub" {
+            return FileFormat::Epub;
+        }
         return FileFormat::Unknown;
     }
     match ext.as_str() {
@@ -101,6 +105,7 @@ pub fn sniff(filename: &str, bytes: &[u8]) -> FileFormat {
         "pptx" | "pptm" | "potx" | "potm" => FileFormat::Pptx,
         "odt" | "ott" => FileFormat::Odt,
         "ods" | "ots" => FileFormat::Ods,
+        "epub" => FileFormat::Epub,
         _ => FileFormat::Txt,
     }
 }

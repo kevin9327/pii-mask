@@ -100,6 +100,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             loc: ParaLoc::Pdf { page: 0 },
         });
     }
+    for note in uri_action_text(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     if !any_text {
         warnings.push("텍스트 없음 (스캔 PDF이거나 텍스트 레이어가 없습니다. OCR은 지원하지 않습니다).".into());
     }
@@ -428,6 +440,46 @@ fn embedded_filespec_text(doc: &Document) -> Vec<String> {
         }
     }
     out
+}
+
+/// Link actions keep PII in /URI even when the page stream is empty.
+fn uri_action_text(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    for object in doc.objects.values() {
+        collect_uri(doc, object, &mut out, 0);
+    }
+    out
+}
+
+fn collect_uri(doc: &Document, obj: &Object, out: &mut Vec<String>, depth: usize) {
+    if depth > 8 {
+        return;
+    }
+    let Some(resolved) = resolve_obj(doc, obj) else {
+        return;
+    };
+    match resolved {
+        Object::Dictionary(dict) => {
+            if let Ok(v) = dict.get(b"URI") {
+                if let Some(s) = pdf_obj_string(doc, v) {
+                    if !s.trim().is_empty() {
+                        out.push(s);
+                    }
+                }
+            }
+            for (_k, v) in dict.iter() {
+                if matches!(v, Object::Dictionary(_) | Object::Array(_) | Object::Reference(_)) {
+                    collect_uri(doc, v, out, depth + 1);
+                }
+            }
+        }
+        Object::Array(arr) => {
+            for item in arr {
+                collect_uri(doc, item, out, depth + 1);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Sticky notes, markup /Contents, and AcroForm /V values — not the page

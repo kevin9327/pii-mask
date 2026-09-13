@@ -67,7 +67,12 @@ pub fn rewrite(
                 }
             }
         }
-        FileFormat::Docx | FileFormat::Xlsx | FileFormat::Pptx | FileFormat::Odt | FileFormat::Ods => {
+        FileFormat::Docx
+        | FileFormat::Xlsx
+        | FileFormat::Pptx
+        | FileFormat::Odt
+        | FileFormat::Ods
+        | FileFormat::Epub => {
             match rewrite_zip(extracted, &masked_paras) {
                 Ok(bytes) => Ok(RewriteOut {
                     bytes,
@@ -328,6 +333,8 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
         } else if key.starts_with("xl/pivotCache/") {
             crate::parse::ooxml::rewrite_pivot_cache_strings(&xml, texts)
         } else if key == "content.xml" || key == "meta.xml" {
+            crate::parse::ooxml::rewrite_xml_text_nodes(&xml, texts)
+        } else if crate::parse::ooxml::is_epub_text_part(&key) {
             crate::parse::ooxml::rewrite_xml_text_nodes(&xml, texts)
         } else if key.starts_with("docProps/") {
             crate::parse::ooxml::rewrite_core_props(&xml, texts)

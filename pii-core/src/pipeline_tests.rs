@@ -255,6 +255,21 @@ fn pdf_with_embedded_filespec(desc: &str) -> Vec<u8> {
     pdf_from_objects(&objects)
 }
 
+fn pdf_with_uri_action(uri: &str) -> Vec<u8> {
+    let escaped = uri.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let stream = "BT /F1 12 Tf 72 720 Td (visible) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Annots [6 0 R] /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 100 20] /A 7 0 R >>".to_string(),
+        format!("<< /S /URI /URI ({escaped}) >>"),
+    ];
+    pdf_from_objects(&objects)
+}
+
 fn xlsx_with_chart_title(title: &str, cell: &str) -> Vec<u8> {
     let ss = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -428,6 +443,23 @@ fn odt_with_text(text: &str) -> Vec<u8> {
         ("content.xml".into(), content.into_bytes()),
     ])
     .expect("odt zip")
+}
+
+fn epub_with_text(text: &str) -> Vec<u8> {
+    let container = r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="OEBPS/chapter.xhtml" media-type="application/xhtml+xml"/></rootfiles>
+</container>"#;
+    let xhtml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>{}</p></body></html>"#,
+        xml_escape(text)
+    );
+    write_zip(&[
+        ("META-INF/container.xml".into(), container.as_bytes().to_vec()),
+        ("OEBPS/chapter.xhtml".into(), xhtml.into_bytes()),
+    ])
+    .expect("epub zip")
 }
 
 fn ods_with_text(text: &str) -> Vec<u8> {
@@ -1176,6 +1208,18 @@ fn every_supported_extension_detects_and_masks_via_process_file() {
         &rrn,
     );
     assert_detect_and_mask(
+        "sample.epub",
+        &epub_with_text(&text),
+        crate::FileFormat::Epub,
+        &rrn,
+    );
+    assert_detect_and_mask(
+        "sample.EPUB",
+        &epub_with_text(&text),
+        crate::FileFormat::Epub,
+        &rrn,
+    );
+    assert_detect_and_mask(
         "sample.hwpx",
         &hwpx_with_text(&text),
         crate::FileFormat::Hwpx,
@@ -1890,6 +1934,45 @@ fn process_file_tsv_multiline_quoted_field_is_masked() {
         masked.starts_with("name\tnote"),
         "tsv header lost: {masked}"
     );
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_epub_xhtml_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = epub_with_text(&format!("장 {rrn}"));
+    let out = process_file("book.epub", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Epub);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "EPUB XHTML RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked epub");
+    let again = crate::parse::extract("book.epub", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "epub left raw: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pdf_uri_action_is_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_uri_action(&format!("https://hr.example/?ssn={rrn}"));
+    let out = process_file("link.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF URI RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
+    assert!(!masked.contains(&rrn), "URI PII left: {masked}");
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

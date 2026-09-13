@@ -15,6 +15,7 @@ pub enum FileFormat {
     Pptx,
     Odt,
     Ods,
+    Epub,
     Unknown,
 }
 
@@ -33,6 +34,7 @@ impl FileFormat {
             FileFormat::Pptx => "pptx",
             FileFormat::Odt => "odt",
             FileFormat::Ods => "ods",
+            FileFormat::Epub => "epub",
             FileFormat::Unknown => "unknown",
         }
     }

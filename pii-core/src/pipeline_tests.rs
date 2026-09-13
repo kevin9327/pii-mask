@@ -85,6 +85,39 @@ fn empty_pdf() -> Vec<u8> {
     pdf_with_text("")
 }
 
+fn pdf_with_annotation(body: &str, note: &str) -> Vec<u8> {
+    let escaped_body = body.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let escaped_note = note.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let stream = format!("BT /F1 12 Tf 72 720 Td ({escaped_body}) Tj ET");
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Annots [6 0 R] /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        format!(
+            "<< /Type /Annot /Subtype /Text /Contents ({escaped_note}) /Rect [72 680 220 710] /Name /Comment >>"
+        ),
+    ];
+    let mut body_pdf = String::from("%PDF-1.4\n");
+    let mut offsets = vec![0u32];
+    for (i, obj) in objects.iter().enumerate() {
+        offsets.push(body_pdf.len() as u32);
+        body_pdf.push_str(&format!("{} 0 obj\n{obj}\nendobj\n", i + 1));
+    }
+    let xref_at = body_pdf.len();
+    body_pdf.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
+    body_pdf.push_str("0000000000 65535 f \n");
+    for off in offsets.iter().skip(1) {
+        body_pdf.push_str(&format!("{off:010} 00000 n \n"));
+    }
+    body_pdf.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    body_pdf.into_bytes()
+}
+
 fn docx_with_text(text: &str) -> Vec<u8> {
     let xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -852,6 +885,27 @@ fn process_file_euckr_txt_roundtrip_and_html_residual() {
         "html report must show residual from process_file: {html}"
     );
     assert!(html.contains("kr.txt"));
+}
+
+#[test]
+fn process_file_pdf_annotation_contents_are_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_annotation("공개 본문", &format!("숨긴 메모 {rrn}"));
+    let out = process_file("note.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF annotation RRN missed: {:?} warnings={:?}",
+        out.report.findings,
+        out.report.warnings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt fallback")).unwrap();
+    assert!(!masked.contains(&rrn), "annotation PII left in fallback: {masked}");
+    assert!(masked.contains("공개 본문"), "visible body lost: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
 }
 
 fn docx_with_header_only(header: &str, body: &str) -> Vec<u8> {

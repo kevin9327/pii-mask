@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="360" viewBox="0 0 1040 360" role="img">
+  <rect width="1040" height="360" fill="#0e141b"/>
+  <text x="36" y="38" fill="#e8eef6" font-family="sans-serif" font-size="20" font-weight="700">PDF에서 개인정보가 숨는 층</text>
+  <text x="36" y="62" fill="#93a0b0" font-family="sans-serif" font-size="13">화면 본문만 보면 주석·양식 필드를 놓칩니다. OCR은 하지 않습니다.</text>
+  <rect x="36" y="92" width="230" height="96" rx="12" fill="#151c25" stroke="#3db8a0"/>
+  <text x="151" y="132" text-anchor="middle" fill="#3db8a0" font-family="sans-serif" font-size="14">콘텐츠 스트림</text>
+  <text x="151" y="156" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">Tj / TJ 텍스트 레이어</text>
+  <rect x="286" y="92" width="230" height="96" rx="12" fill="#151c25" stroke="#e8b849"/>
+  <text x="401" y="132" text-anchor="middle" fill="#e8b849" font-family="sans-serif" font-size="14">주석 Annot</text>
+  <text x="401" y="156" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">/Contents 메모·형광펜</text>
+  <rect x="536" y="92" width="230" height="96" rx="12" fill="#151c25" stroke="#e8b849"/>
+  <text x="651" y="132" text-anchor="middle" fill="#e8b849" font-family="sans-serif" font-size="14">AcroForm</text>
+  <text x="651" y="156" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">필드 /V 값</text>
+  <rect x="786" y="92" width="218" height="96" rx="12" fill="#3a1f1f" stroke="#e07a6a"/>
+  <text x="895" y="132" text-anchor="middle" fill="#e07a6a" font-family="sans-serif" font-size="14">스캔 이미지만</text>
+  <text x="895" y="156" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">텍스트 없음 리포트</text>
+  <rect x="36" y="214" width="968" height="110" rx="12" fill="#16324d" stroke="#3db8a0"/>
+  <text x="520" y="258" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="15">process_file은 본문 스트림과 주석/양식을 같은 탐지 엔진에 넣습니다</text>
+  <text x="520" y="286" text-anchor="middle" fill="#c5e8d4" font-family="sans-serif" font-size="13">마스킹 출력은 PDF 재작성이 어려워 TXT로 대체하고 그 사실을 명시합니다. 파일은 서버로 나가지 않습니다.</text>
+</svg>

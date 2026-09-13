@@ -26,6 +26,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             });
         }
     }
+    for note in annotation_and_field_text(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     if !any_text {
         warnings.push("텍스트 없음 (스캔 PDF이거나 텍스트 레이어가 없습니다. OCR은 지원하지 않습니다).".into());
     }
@@ -74,6 +86,68 @@ fn page_text(doc: &Document, page_id: lopdf::ObjectId) -> Result<String> {
         }
     }
     Ok(out)
+}
+
+/// Sticky notes, markup /Contents, and AcroForm /V values — not the page
+/// content stream. Forms and comments are a common PII hideout.
+fn annotation_and_field_text(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    for object in doc.objects.values() {
+        let Object::Dictionary(dict) = object else {
+            continue;
+        };
+        let type_name = dict.get(b"Type").ok().and_then(object_name).unwrap_or("");
+        let subtype = dict.get(b"Subtype").ok().and_then(object_name).unwrap_or("");
+        let is_annot = type_name == "Annot"
+            || matches!(
+                subtype,
+                "Text"
+                    | "Highlight"
+                    | "FreeText"
+                    | "Widget"
+                    | "Popup"
+                    | "StrikeOut"
+                    | "Underline"
+                    | "Caret"
+                    | "Square"
+                    | "Circle"
+                    | "Line"
+            );
+        let is_field = dict.get(b"FT").is_ok();
+        if !is_annot && !is_field {
+            continue;
+        }
+        if let Ok(contents) = dict.get(b"Contents") {
+            if let Some(s) = pdf_obj_string(doc, contents) {
+                out.push(s);
+            }
+        }
+        if let Ok(v) = dict.get(b"V") {
+            if let Some(s) = pdf_obj_string(doc, v) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
+fn object_name(obj: &Object) -> Option<&str> {
+    match obj {
+        Object::Name(n) => std::str::from_utf8(n).ok(),
+        _ => None,
+    }
+}
+
+fn pdf_obj_string(doc: &Document, obj: &Object) -> Option<String> {
+    let resolved = match obj {
+        Object::Reference(id) => doc.get_object(*id).ok()?,
+        other => other,
+    };
+    match resolved {
+        Object::String(bytes, _) => Some(decode_pdf_bytes(bytes)),
+        Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
+        _ => None,
+    }
 }
 
 fn push_pdf_string(obj: &Object, out: &mut String) {

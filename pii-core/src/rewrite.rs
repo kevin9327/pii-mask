@@ -323,6 +323,8 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             crate::parse::ooxml::rewrite_drawingml_paragraphs(&xml, texts)
         } else if key.starts_with("ppt/comments") {
             crate::parse::ooxml::rewrite_xml_text_nodes(&xml, texts)
+        } else if key.starts_with("xl/tables/") {
+            crate::parse::ooxml::rewrite_xlsx_table_texts(&xml, texts)
         } else if key.starts_with("xl/pivotCache/") {
             crate::parse::ooxml::rewrite_pivot_cache_strings(&xml, texts)
         } else if key == "content.xml" || key == "meta.xml" {

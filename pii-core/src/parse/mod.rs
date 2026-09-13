@@ -90,7 +90,7 @@ pub fn sniff(filename: &str, bytes: &[u8]) -> FileFormat {
     }
     match ext.as_str() {
         "json" => FileFormat::Json,
-        "csv" => FileFormat::Csv,
+        "csv" | "tsv" => FileFormat::Csv,
         "txt" | "text" | "log" | "md" => FileFormat::Txt,
         "hwp" => FileFormat::Hwp,
         "hwpx" => FileFormat::Hwpx,

@@ -515,6 +515,32 @@ fn xlsx_with_pivot_cache(value: &str, cell: &str) -> Vec<u8> {
     .expect("xlsx pivot zip")
 }
 
+fn xlsx_with_table_display_name(name: &str, cell: &str) -> Vec<u8> {
+    let ss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+<si><t>{}</t></si></sst>"#,
+        xml_escape(cell)
+    );
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    let table = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="Table1" displayName="{}" ref="A1:A2">
+<tableColumns count="1"><tableColumn id="1" name="col"/></tableColumns>
+</table>"#,
+        xml_escape(name)
+    );
+    write_zip(&[
+        ("xl/sharedStrings.xml".into(), ss.into_bytes()),
+        ("xl/worksheets/sheet1.xml".into(), sheet.as_bytes().to_vec()),
+        ("xl/workbook.xml".into(), b"<workbook/>".to_vec()),
+        ("xl/tables/table1.xml".into(), table.into_bytes()),
+    ])
+    .expect("xlsx table zip")
+}
+
 fn pptx_with_notes_only(notes: &str, slide: &str) -> Vec<u8> {
     write_zip(&[
         ("ppt/presentation.xml".into(), b"<p:presentation/>".to_vec()),
@@ -1098,6 +1124,7 @@ fn every_supported_extension_detects_and_masks_via_process_file() {
     assert_detect_and_mask("sample.md", text.as_bytes(), crate::FileFormat::Txt, &rrn);
     assert_detect_and_mask("sample.log", text.as_bytes(), crate::FileFormat::Txt, &rrn);
     assert_detect_and_mask("sample.csv", csv.as_bytes(), crate::FileFormat::Csv, &rrn);
+    assert_detect_and_mask("sample.tsv", csv.as_bytes(), crate::FileFormat::Csv, &rrn);
     assert_detect_and_mask("sample.JSON", json.as_bytes(), crate::FileFormat::Json, &rrn);
     assert_detect_and_mask("sample.json", json.as_bytes(), crate::FileFormat::Json, &rrn);
     assert_detect_and_mask(
@@ -1819,6 +1846,50 @@ fn process_file_pdf_embedded_filespec_is_detected() {
     );
     let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
     assert!(!masked.contains(&rrn), "Filespec PII left: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_xlsx_table_display_name_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = xlsx_with_table_display_name(&format!("명단{rrn}"), "본문만");
+    let out = process_file("table.xlsx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Xlsx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "XLSX table displayName RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked table");
+    let again = crate::parse::extract("table.xlsx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "table name left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_tsv_multiline_quoted_field_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let tsv = format!("name\tnote\n\"홍길동\"\t\"첫째줄\n{rrn}\n셋째줄\"\n");
+    let out = process_file("multi.tsv", tsv.as_bytes(), &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Csv);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "multiline tsv RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("masked tsv")).unwrap();
+    assert!(!masked.contains(&rrn), "multiline tsv left raw: {masked}");
+    assert!(
+        masked.starts_with("name\tnote"),
+        "tsv header lost: {masked}"
+    );
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

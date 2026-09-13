@@ -250,6 +250,20 @@ pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
                 });
             }
         }
+        if key.starts_with("xl/tables/") && key.ends_with(".xml") && !key.contains("_rels") {
+            let xml = String::from_utf8_lossy(data).into_owned();
+            for (i, t) in xlsx_table_texts(&xml).into_iter().enumerate() {
+                paragraphs.push(Paragraph {
+                    index: paragraphs.len(),
+                    text: t,
+                    full_byte_start: 0,
+                    loc: ParaLoc::ZipXml {
+                        inner_path: name.clone(),
+                        para_ord: i,
+                    },
+                });
+            }
+        }
         if key.starts_with("xl/pivotCache/") && key.ends_with(".xml") && !key.contains("_rels") {
             let xml = String::from_utf8_lossy(data).into_owned();
             for (i, t) in pivot_cache_strings(&xml).into_iter().enumerate() {
@@ -424,6 +438,72 @@ pub fn drawingml_paragraphs(xml: &str) -> Vec<String> {
         };
         out.push(concat_local_t(&after[..pend], "a:t"));
         rest = &after[pend + 6..];
+    }
+    out
+}
+
+pub fn xlsx_table_texts(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    loop {
+        let col = find_open(rest, "tableColumn");
+        let tbl = find_open(rest, "table");
+        let (kind, s) = match (col, tbl) {
+            (Some(c), Some(t)) if c <= t => ("name", c),
+            (Some(c), None) => ("name", c),
+            (None, Some(t)) => ("displayName", t),
+            (Some(_), Some(t)) => ("displayName", t),
+            _ => break,
+        };
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            break;
+        };
+        if let Some(v) = attr_value(&after[..=gt], kind) {
+            if !v.trim().is_empty() {
+                out.push(xml_unescape(&v));
+            }
+        }
+        rest = &after[gt + 1..];
+    }
+    out
+}
+
+pub fn rewrite_xlsx_table_texts(xml: &str, new_texts: &[String]) -> String {
+    let mut out = String::new();
+    let mut rest = xml;
+    let mut idx = 0usize;
+    loop {
+        let col = find_open(rest, "tableColumn");
+        let tbl = find_open(rest, "table");
+        let (kind, s) = match (col, tbl) {
+            (Some(c), Some(t)) if c <= t => ("name", c),
+            (Some(c), None) => ("name", c),
+            (None, Some(t)) => ("displayName", t),
+            (Some(_), Some(t)) => ("displayName", t),
+            _ => {
+                out.push_str(rest);
+                break;
+            }
+        };
+        out.push_str(&rest[..s]);
+        let after = &rest[s..];
+        let Some(gt) = after.find('>') else {
+            out.push_str(after);
+            break;
+        };
+        let open = &after[..=gt];
+        if idx < new_texts.len()
+            && attr_value(open, kind)
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false)
+        {
+            out.push_str(&replace_attr(open, kind, &new_texts[idx]));
+            idx += 1;
+        } else {
+            out.push_str(open);
+        }
+        rest = &after[gt + 1..];
     }
     out
 }

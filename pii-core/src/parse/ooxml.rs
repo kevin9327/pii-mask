@@ -22,7 +22,12 @@ pub fn extract_docx(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             continue;
         };
         let xml = String::from_utf8_lossy(data);
-        for (i, t) in docx_paragraphs(&xml).into_iter().enumerate() {
+        let texts = if name.starts_with("customXml/") {
+            xml_text_nodes(&xml)
+        } else {
+            docx_paragraphs(&xml)
+        };
+        for (i, t) in texts.into_iter().enumerate() {
             paragraphs.push(Paragraph {
                 index: paragraphs.len(),
                 text: t,
@@ -83,6 +88,60 @@ fn push_core_prop_paragraphs(parts: &[(String, Vec<u8>)], paragraphs: &mut Vec<P
     }
 }
 
+pub fn xml_text_nodes(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(gt) = rest.find('>') {
+        let after = &rest[gt + 1..];
+        if after.starts_with('<') {
+            rest = after;
+            continue;
+        }
+        if let Some(lt) = after.find('<') {
+            let inner = &after[..lt];
+            if !inner.trim().is_empty() {
+                out.push(xml_unescape(inner));
+            }
+            rest = &after[lt..];
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+pub fn rewrite_xml_text_nodes(xml: &str, new_texts: &[String]) -> String {
+    let mut out = String::new();
+    let mut rest = xml;
+    let mut idx = 0usize;
+    while let Some(gt) = rest.find('>') {
+        out.push_str(&rest[..=gt]);
+        let after = &rest[gt + 1..];
+        if after.starts_with('<') {
+            rest = after;
+            continue;
+        }
+        if let Some(lt) = after.find('<') {
+            let inner = &after[..lt];
+            if inner.trim().is_empty() {
+                out.push_str(inner);
+            } else if idx < new_texts.len() {
+                out.push_str(&xml_escape(&new_texts[idx]));
+                idx += 1;
+            } else {
+                out.push_str(inner);
+            }
+            rest = &after[lt..];
+        } else {
+            out.push_str(after);
+            rest = "";
+            break;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn core_prop_texts(xml: &str) -> Vec<String> {
     let mut out = Vec::new();
     for tag in CORE_PROP_TAGS {
@@ -113,7 +172,11 @@ pub fn rewrite_core_props(xml: &str, new_texts: &[String]) -> String {
 
 fn is_docx_text_part(name: &str) -> bool {
     let n = name.replace('\\', "/");
-    n.starts_with("word/") && n.ends_with(".xml") && !n.contains("/_rels/")
+    if n.contains("/_rels/") || n.contains("itemProps") {
+        return false;
+    }
+    (n.starts_with("word/") && n.ends_with(".xml"))
+        || (n.starts_with("customXml/") && n.ends_with(".xml"))
 }
 
 pub fn extract_xlsx(filename: &str, bytes: &[u8]) -> Result<Extracted> {

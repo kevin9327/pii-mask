@@ -298,7 +298,9 @@ fn rewrite_zip(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>
             continue;
         };
         let xml = String::from_utf8_lossy(data).into_owned();
-        let next = if key.starts_with("word/") && key.ends_with(".xml") {
+        let next = if key.starts_with("customXml/") && key.ends_with(".xml") {
+            crate::parse::ooxml::rewrite_xml_text_nodes(&xml, texts)
+        } else if key.starts_with("word/") && key.ends_with(".xml") {
             rewrite_docx_paragraphs(&xml, texts)
         } else if key == "xl/sharedStrings.xml" {
             rewrite_shared_strings(&xml, texts)

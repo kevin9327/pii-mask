@@ -364,6 +364,25 @@ fn hwp_with_prvtext_preview(body: &str, preview: &str) -> Vec<u8> {
     cursor.into_inner()
 }
 
+fn docx_with_custom_xml(ssn: &str, body: &str) -> Vec<u8> {
+    let body_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>{}</w:t></w:r></w:p></w:body></w:document>"#,
+        xml_escape(body)
+    );
+    let item = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<item><name>홍길동</name><ssn>{}</ssn></item>"#,
+        xml_escape(ssn)
+    );
+    write_zip(&[
+        ("word/document.xml".into(), body_xml.into_bytes()),
+        ("customXml/item1.xml".into(), item.into_bytes()),
+    ])
+    .expect("docx customXml zip")
+}
+
 fn docx_with_core_description(description: &str, body: &str) -> Vec<u8> {
     let body_xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1268,6 +1287,54 @@ fn process_file_pdf_outline_title_is_detected() {
     );
     let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
     assert!(!masked.contains(&rrn), "outline PII left: {masked}");
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_csv_multiline_quoted_field_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let csv = format!("name,note\n\"홍길동\",\"첫째줄\n{rrn}\n셋째줄\"\n");
+    let out = process_file("multi.csv", csv.as_bytes(), &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Csv);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "multiline csv RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("masked csv")).unwrap();
+    assert!(!masked.contains(&rrn), "multiline csv left raw: {masked}");
+    assert!(
+        masked.starts_with("name,note"),
+        "csv header lost: {masked}"
+    );
+    assert!(
+        masked.matches('"').count() >= 4,
+        "quotes dropped around multiline field: {masked}"
+    );
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_docx_custom_xml_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = docx_with_custom_xml(&rrn, "본문만");
+    let out = process_file("cx.docx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Docx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "customXml RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked customXml");
+    let again = crate::parse::extract("cx.docx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "customXml left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "body lost: {}", again.full_text);
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

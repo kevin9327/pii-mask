@@ -9,7 +9,11 @@ pub fn extract(filename: &str, bytes: &[u8], format: FileFormat) -> Result<Extra
     if let Some(w) = warn {
         warnings.push(w);
     }
-    let paragraphs = split_paragraphs(&text);
+    let paragraphs = if format == FileFormat::Csv {
+        split_csv_records(&text)
+    } else {
+        split_paragraphs(&text)
+    };
     let mut extracted = super::finish(
         filename,
         if format == FileFormat::Unknown {
@@ -78,6 +82,73 @@ pub fn encode(text: &str, enc: TextEncoding) -> Vec<u8> {
             cow.into_owned()
         }
     }
+}
+
+/// RFC 4180 records: newlines inside quotes do not split rows.
+pub fn split_csv_records(text: &str) -> Vec<Paragraph> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    let mut rec_start = 0usize;
+    let mut in_quotes = false;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_quotes {
+            if b == b'"' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                    i += 2;
+                    continue;
+                }
+                in_quotes = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' {
+            in_quotes = true;
+            i += 1;
+            continue;
+        }
+        if b == b'\n' {
+            let end = i;
+            let rec = text[rec_start..end].trim_end_matches('\r').to_string();
+            out.push(Paragraph {
+                index: out.len(),
+                text: rec,
+                full_byte_start: 0,
+                loc: ParaLoc::Sequential {
+                    byte_start: rec_start,
+                    byte_end: end,
+                },
+            });
+            rec_start = i + 1;
+        }
+        i += 1;
+    }
+    if rec_start <= text.len() {
+        let rec = text[rec_start..].trim_end_matches('\r').to_string();
+        out.push(Paragraph {
+            index: out.len(),
+            text: rec,
+            full_byte_start: 0,
+            loc: ParaLoc::Sequential {
+                byte_start: rec_start,
+                byte_end: text.len(),
+            },
+        });
+    }
+    if out.is_empty() {
+        out.push(Paragraph {
+            index: 0,
+            text: String::new(),
+            full_byte_start: 0,
+            loc: ParaLoc::Sequential {
+                byte_start: 0,
+                byte_end: 0,
+            },
+        });
+    }
+    out
 }
 
 pub fn split_paragraphs(text: &str) -> Vec<Paragraph> {

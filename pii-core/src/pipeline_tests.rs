@@ -618,6 +618,49 @@ fn every_supported_extension_detects_and_masks_via_process_file() {
 }
 
 #[test]
+fn process_file_full_mask_reports_zero_residual_confirmed() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let text = format!("계약자 {rrn} 보관");
+    let out = process_file("gate.txt", text.as_bytes(), &cfg(MaskMode::Full, true)).unwrap();
+    assert!(
+        out.report.confirmed >= 1,
+        "fixture must be detected first: {:?}",
+        out.report.findings
+    );
+    assert_eq!(
+        out.report.residual_confirmed, 0,
+        "full mask must leave 0 confirmed residuals, warnings={:?} findings={:?}",
+        out.report.warnings, out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.unwrap()).unwrap();
+    assert!(!masked.contains(&rrn));
+}
+
+#[test]
+fn process_file_json_number_mask_stays_parseable() {
+    let card = card_string();
+    let digits: String = card.chars().filter(|c| c.is_ascii_digit()).collect();
+    let json = format!(r#"{{"card":{digits},"ok":true}}"#);
+    let out = process_file("n.json", json.as_bytes(), &cfg(MaskMode::Full, true)).unwrap();
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.rule_id == "credit_card" && f.confidence == Confidence::Confirmed),
+        "unquoted JSON number card missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("masked json")).unwrap();
+    serde_json::from_str::<serde_json::Value>(&masked)
+        .unwrap_or_else(|e| panic!("masked JSON must parse: {e} in {masked}"));
+    assert!(
+        !masked.contains(&digits),
+        "raw card digits still in JSON: {masked}"
+    );
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
 fn unknown_zip_is_not_parsed_as_txt() {
     let pptx_like = write_zip(&[("ppt/slides/slide1.xml".into(), b"<p/>".to_vec())]).unwrap();
     let out = process_file("deck.pptx", &pptx_like, &cfg(MaskMode::Full, true)).unwrap();

@@ -133,6 +133,11 @@ pub struct FileReport {
     pub confirmed: usize,
     pub suspicious: usize,
     pub already_masked: usize,
+    /// Confirmed hits still present after rewrite (same engine, second pass).
+    #[serde(default)]
+    pub residual_confirmed: usize,
+    #[serde(default)]
+    pub residual_suspicious: usize,
 }
 
 #[derive(Debug, Clone)]

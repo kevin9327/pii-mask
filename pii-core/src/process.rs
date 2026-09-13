@@ -45,6 +45,8 @@ pub fn process_file(name: &str, bytes: &[u8], cfg: &ProcessConfig) -> Result<Pro
         confirmed,
         suspicious,
         already_masked,
+        residual_confirmed: 0,
+        residual_suspicious: 0,
     };
 
     if !cfg.do_mask {
@@ -61,6 +63,26 @@ pub fn process_file(name: &str, bytes: &[u8], cfg: &ProcessConfig) -> Result<Pro
     if let Some(note) = &out.fallback_note {
         report.warnings.push(note.clone());
     }
+
+    let residual_name = out.filename.as_str();
+    if let Ok(again) = extract(residual_name, &out.bytes) {
+        let residual = crate::rewrite::detect_extracted(&again, &cfg.rules);
+        report.residual_confirmed = residual
+            .iter()
+            .filter(|f| f.confidence == Confidence::Confirmed)
+            .count();
+        report.residual_suspicious = residual
+            .iter()
+            .filter(|f| f.confidence == Confidence::Suspicious)
+            .count();
+        if report.residual_confirmed > 0 {
+            report.warnings.push(format!(
+                "마스킹 후에도 확정 개인정보 {}건이 남아 있습니다.",
+                report.residual_confirmed
+            ));
+        }
+    }
+
     Ok(ProcessResult {
         report,
         masked_bytes: Some(out.bytes),

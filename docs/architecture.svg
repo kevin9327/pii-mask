@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="520" viewBox="0 0 1100 520" role="img" aria-labelledby="title desc">
+  <title id="title">PII Mask 처리 흐름</title>
+  <desc id="desc">파일이 브라우저에만 머무르며 Web Worker와 pii-core가 파싱·탐지·검증·마스킹·잔여 스캔을 수행한다.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e141b"/>
+      <stop offset="1" stop-color="#16324d"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="1100" height="520" fill="url(#bg)"/>
+  <text x="40" y="42" fill="#e8eef6" font-family="Pretendard, Noto Sans KR, sans-serif" font-size="22" font-weight="700">PII Mask — 브라우저 안에서만 도는 파이프라인</text>
+  <text x="40" y="68" fill="#93a0b0" font-family="Pretendard, Noto Sans KR, sans-serif" font-size="14">파일은 어떤 서버로도 전송되지 않습니다. 메인 스레드는 UI만, 무거운 작업은 Web Worker.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="40" y="100" width="200" height="88" rx="12" fill="#151c25" stroke="#3db8a0"/>
+    <text x="140" y="138" text-anchor="middle" fill="#3db8a0" font-family="sans-serif" font-size="13">1. 드롭</text>
+    <text x="140" y="162" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">HWP · HWPX · PDF</text>
+    <text x="140" y="180" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">DOCX · XLSX · TXT</text>
+  </g>
+  <polygon points="250,144 278,144 278,136 302,148 278,160 278,152 250,152" fill="#3db8a0"/>
+
+  <g filter="url(#shadow)">
+    <rect x="312" y="100" width="200" height="88" rx="12" fill="#151c25" stroke="#2a3544"/>
+    <text x="412" y="138" text-anchor="middle" fill="#e8b849" font-family="sans-serif" font-size="13">2. Web Worker</text>
+    <text x="412" y="162" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">pii-wasm</text>
+    <text x="412" y="180" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">메인 스레드 차단 없음</text>
+  </g>
+  <polygon points="522,144 550,144 550,136 574,148 550,160 550,152 522,152" fill="#3db8a0"/>
+
+  <g filter="url(#shadow)">
+    <rect x="584" y="88" width="476" height="112" rx="12" fill="#151c25" stroke="#3db8a0"/>
+    <text x="822" y="118" text-anchor="middle" fill="#3db8a0" font-family="sans-serif" font-size="13">3. pii-core (Rust)</text>
+    <text x="662" y="152" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="12">파싱</text>
+    <text x="742" y="152" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="12">정규식</text>
+    <text x="822" y="152" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="12">검증식</text>
+    <text x="902" y="152" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="12">마스킹</text>
+    <text x="982" y="152" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="12">잔여 스캔</text>
+    <text x="822" y="178" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">주민 체크섬 · Luhn · 사업자 · 법인 · 오프셋 재작성</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="40" y="250" width="320" height="100" rx="12" fill="#151c25" stroke="#2a3544"/>
+    <text x="200" y="288" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="14">결과 테이블</text>
+    <text x="200" y="314" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">파일명 · 유형 · 확정/의심</text>
+    <text x="200" y="332" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">미리보기는 값 자체를 마스킹</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="390" y="250" width="320" height="100" rx="12" fill="#151c25" stroke="#2a3544"/>
+    <text x="550" y="288" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="14">마스킹본</text>
+    <text x="550" y="314" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">원 포맷 유지 (HWP/HWPX/DOCX…)</text>
+    <text x="550" y="332" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">PDF는 TXT 대체 + 명시</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="740" y="250" width="320" height="100" rx="12" fill="#151c25" stroke="#2a3544"/>
+    <text x="900" y="288" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="14">리포트</text>
+    <text x="900" y="314" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">파일별 · 전체</text>
+    <text x="900" y="332" text-anchor="middle" fill="#93a0b0" font-family="sans-serif" font-size="12">CSV · JSON · HTML</text>
+  </g>
+
+  <rect x="40" y="380" width="1020" height="100" rx="12" fill="#1f3a28" stroke="#3db8a0"/>
+  <text x="550" y="424" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="16" font-weight="700">프라이버시 계약</text>
+  <text x="550" y="452" text-anchor="middle" fill="#c5e8d4" font-family="sans-serif" font-size="14">ArrayBuffer는 Worker로만 전달됩니다. fetch/upload 경로가 없습니다. 마스킹 후 잔여 확정 건수를 같은 엔진으로 다시 셉니다.</text>
+</svg>

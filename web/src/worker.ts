@@ -42,6 +42,8 @@ self.onmessage = async (ev: MessageEvent<WorkerIn>) => {
               confirmed: 0,
               suspicious: 0,
               already_masked: 0,
+              residual_confirmed: 0,
+              residual_suspicious: 0,
             },
             masked: null,
             outputName: null,

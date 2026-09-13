@@ -38,6 +38,8 @@ export interface FileReport {
   confirmed: number;
   suspicious: number;
   already_masked: number;
+  residual_confirmed?: number;
+  residual_suspicious?: number;
 }
 
 export interface ProcessResult {

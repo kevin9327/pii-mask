@@ -107,7 +107,17 @@ pub fn rewrite(
             diffs,
             masked_paragraphs: masked_paras,
         }),
-        FileFormat::Txt | FileFormat::Csv | FileFormat::Json => {
+        FileFormat::Json => {
+            let bytes = rewrite_json(extracted, findings, mode, rules);
+            Ok(RewriteOut {
+                bytes: bytes.into_bytes(),
+                filename: extracted.filename.clone(),
+                fallback_note: None,
+                diffs,
+                masked_paragraphs: masked_paras,
+            })
+        }
+        FileFormat::Txt | FileFormat::Csv => {
             let bytes = rewrite_plain(extracted, findings, mode, rules);
             Ok(RewriteOut {
                 bytes: bytes.into_bytes(),
@@ -160,6 +170,91 @@ fn rewrite_plain(
         }
     }
     buf
+}
+
+/// JSON rewrite keeps a parseable document: hits outside strings (numbers)
+/// are emitted as JSON strings so `****************` cannot break the file.
+fn rewrite_json(
+    extracted: &Extracted,
+    findings: &[Finding],
+    mode: MaskMode,
+    rules: &RuleSet,
+) -> String {
+    let (text, _) = crate::parse::text::decode(&extracted.original);
+    let mut ops: Vec<(usize, usize, String, bool)> = Vec::new();
+    for f in findings {
+        if f.confidence == Confidence::AlreadyMasked {
+            continue;
+        }
+        let Some(p) = extracted.paragraphs.get(f.paragraph_index) else {
+            continue;
+        };
+        if let ParaLoc::Sequential { byte_start, .. } = p.loc {
+            let start = byte_start + f.byte_start;
+            let end = byte_start + f.byte_end;
+            let rule = rules.rules.iter().find(|r| r.id == f.rule_id);
+            let repl = crate::mask::apply_mode(
+                &f.raw,
+                mode,
+                rule.map(|r| r.partial.as_str()).unwrap_or(""),
+                rule.map(|r| r.replace_token.as_str()).unwrap_or("[PII]"),
+            );
+            let inside = json_span_in_string(&text, start);
+            ops.push((start, end, repl, inside));
+        }
+    }
+    ops.sort_by_key(|(s, _, _, _)| std::cmp::Reverse(*s));
+    let mut buf = text;
+    for (s, e, repl, inside) in ops {
+        if e > buf.len() || s > e {
+            continue;
+        }
+        let token = if inside {
+            json_escape_inside_string(&repl)
+        } else {
+            format!("\"{}\"", json_escape_inside_string(&repl))
+        };
+        buf.replace_range(s..e, &token);
+    }
+    buf
+}
+
+fn json_span_in_string(src: &str, byte_index: usize) -> bool {
+    let bytes = src.as_bytes();
+    let mut i = 0usize;
+    let mut in_string = false;
+    let mut escape = false;
+    while i < byte_index && i < bytes.len() {
+        let b = bytes[i];
+        if in_string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+        } else if b == b'"' {
+            in_string = true;
+        }
+        i += 1;
+    }
+    in_string
+}
+
+fn json_escape_inside_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn rewrite_hwp(extracted: &Extracted, masked_paras: &[String]) -> Result<Vec<u8>> {

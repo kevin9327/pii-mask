@@ -176,6 +176,11 @@ function render(results: ProcessResult[]) {
   }
   for (const r of results) {
     const report = r.report;
+    if (report.residual_confirmed && report.residual_confirmed > 0) {
+      const rr = document.createElement("tr");
+      rr.innerHTML = `<td>${esc(report.filename)}</td><td colspan="4" class="warn">잔여 확정 ${report.residual_confirmed}건 (같은 엔진 재스캔)</td>`;
+      rows.appendChild(rr);
+    }
     if (report.warnings.length) {
       const wr = document.createElement("tr");
       wr.innerHTML = `<td>${esc(report.filename)}</td><td colspan="4">${warn(report)}</td>`;

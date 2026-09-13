@@ -88,6 +88,18 @@ pub fn extract(filename: &str, bytes: &[u8]) -> Result<Extracted> {
             loc: ParaLoc::Pdf { page: 0 },
         });
     }
+    for note in embedded_filespec_text(&doc) {
+        if note.trim().is_empty() {
+            continue;
+        }
+        any_text = true;
+        paragraphs.push(Paragraph {
+            index: paragraphs.len(),
+            text: note,
+            full_byte_start: 0,
+            loc: ParaLoc::Pdf { page: 0 },
+        });
+    }
     if !any_text {
         warnings.push("텍스트 없음 (스캔 PDF이거나 텍스트 레이어가 없습니다. OCR은 지원하지 않습니다).".into());
     }
@@ -391,6 +403,31 @@ fn pdf_js_payload(doc: &Document, obj: &Object) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Embedded file specifications: /F, /UF, /Desc on /Type /Filespec.
+fn embedded_filespec_text(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    for object in doc.objects.values() {
+        let Object::Dictionary(dict) = object else {
+            continue;
+        };
+        let type_name = dict.get(b"Type").ok().and_then(object_name).unwrap_or("");
+        let has_ef = dict.get(b"EF").is_ok();
+        if type_name != "Filespec" && type_name != "F" && !has_ef {
+            continue;
+        }
+        for key in [b"F".as_slice(), b"UF".as_slice(), b"Desc".as_slice()] {
+            if let Ok(v) = dict.get(key) {
+                if let Some(s) = pdf_obj_string(doc, v) {
+                    if !s.trim().is_empty() {
+                        out.push(s);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Sticky notes, markup /Contents, and AcroForm /V values — not the page

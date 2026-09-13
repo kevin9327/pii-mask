@@ -216,6 +216,10 @@ fn pdf_with_open_action_js(script: &str) -> Vec<u8> {
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
         format!("<< /S /JavaScript /JS ({escaped}) >>"),
     ];
+    pdf_from_objects(&objects)
+}
+
+fn pdf_from_objects(objects: &[String]) -> Vec<u8> {
     let mut body = String::from("%PDF-1.4\n");
     let mut offsets = vec![0u32];
     for (i, obj) in objects.iter().enumerate() {
@@ -233,6 +237,22 @@ fn pdf_with_open_action_js(script: &str) -> Vec<u8> {
         objects.len() + 1
     ));
     body.into_bytes()
+}
+
+fn pdf_with_embedded_filespec(desc: &str) -> Vec<u8> {
+    let escaped = desc.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+    let stream = "BT /F1 12 Tf 72 720 Td (visible) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /Names 6 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /EmbeddedFiles 7 0 R >>".to_string(),
+        "<< /Names [(attach) 8 0 R] >>".to_string(),
+        format!("<< /Type /Filespec /F (attach.pdf) /UF (attach.pdf) /Desc ({escaped}) >>"),
+    ];
+    pdf_from_objects(&objects)
 }
 
 fn xlsx_with_chart_title(title: &str, cell: &str) -> Vec<u8> {
@@ -443,6 +463,27 @@ fn pptx_with_comment_only(comment: &str, slide: &str) -> Vec<u8> {
         ("ppt/comments/comment1.xml".into(), comments.into_bytes()),
     ])
     .expect("pptx comments zip")
+}
+
+fn pptx_with_master_only(master: &str, slide: &str) -> Vec<u8> {
+    let master_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody>
+<a:p><a:r><a:t>{}</a:t></a:r></a:p>
+</p:txBody></p:sp></p:spTree></p:cSld>
+</p:sldMaster>"#,
+        xml_escape(master)
+    );
+    write_zip(&[
+        ("ppt/presentation.xml".into(), b"<p:presentation/>".to_vec()),
+        ("ppt/slides/slide1.xml".into(), pptx_slide_xml(slide).into_bytes()),
+        (
+            "ppt/slideMasters/slideMaster1.xml".into(),
+            master_xml.into_bytes(),
+        ),
+    ])
+    .expect("pptx master zip")
 }
 
 fn xlsx_with_pivot_cache(value: &str, cell: &str) -> Vec<u8> {
@@ -1738,6 +1779,46 @@ fn process_file_xlsx_pivot_cache_is_masked() {
     let again = crate::parse::extract("pivot.xlsx", &masked).unwrap();
     assert!(!again.full_text.contains(&rrn), "pivot left raw: {}", again.full_text);
     assert!(again.full_text.contains("본문만"), "cell lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pptx_slide_master_is_masked() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pptx_with_master_only(&format!("마스터 {rrn}"), "본문만");
+    let out = process_file("master.pptx", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pptx);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PPTX slideMaster RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = out.masked_bytes.expect("masked master");
+    let again = crate::parse::extract("master.pptx", &masked).unwrap();
+    assert!(!again.full_text.contains(&rrn), "master left raw: {}", again.full_text);
+    assert!(again.full_text.contains("본문만"), "slide lost: {}", again.full_text);
+    assert_eq!(out.report.residual_confirmed, 0);
+}
+
+#[test]
+fn process_file_pdf_embedded_filespec_is_detected() {
+    let rrn = rrn_string([9, 0, 0, 1, 0, 1], 1, [2, 3, 4, 5, 6]);
+    let bytes = pdf_with_embedded_filespec(&format!("첨부 {rrn}"));
+    let out = process_file("attach.pdf", &bytes, &cfg(MaskMode::Full, true)).unwrap();
+    assert_eq!(out.report.format, crate::FileFormat::Pdf);
+    assert!(
+        out.report
+            .findings
+            .iter()
+            .any(|f| f.raw == rrn && f.confidence == Confidence::Confirmed),
+        "PDF Filespec Desc RRN missed: {:?}",
+        out.report.findings
+    );
+    let masked = String::from_utf8(out.masked_bytes.expect("pdf txt")).unwrap();
+    assert!(!masked.contains(&rrn), "Filespec PII left: {masked}");
     assert_eq!(out.report.residual_confirmed, 0);
 }
 

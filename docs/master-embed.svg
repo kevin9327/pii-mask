@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="320" viewBox="0 0 1040 320" role="img">
+  <rect width="1040" height="320" fill="#0e141b"/>
+  <text x="36" y="38" fill="#e8eef6" font-family="sans-serif" font-size="20" font-weight="700">마스터와 첨부는 페이지가 아니다</text>
+  <text x="36" y="62" fill="#93a0b0" font-family="sans-serif" font-size="13">슬라이드 마스터 자리표시와 PDF Filespec 설명은 본문 페이지가 아니라도 원문이 있습니다. 서버 전송 없음.</text>
+  <rect x="36" y="88" width="470" height="96" rx="12" fill="#151c25" stroke="#3db8a0"/>
+  <text x="271" y="128" text-anchor="middle" fill="#3db8a0" font-family="sans-serif" font-size="15">PPTX slideMasters</text>
+  <text x="271" y="154" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">레이아웃 a:t 자리표시</text>
+  <rect x="534" y="88" width="470" height="96" rx="12" fill="#151c25" stroke="#e8b849"/>
+  <text x="769" y="128" text-anchor="middle" fill="#e8b849" font-family="sans-serif" font-size="15">PDF /Filespec</text>
+  <text x="769" y="154" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="13">/F · /UF · /Desc 첨부명</text>
+  <rect x="36" y="208" width="968" height="84" rx="12" fill="#16324d" stroke="#3db8a0"/>
+  <text x="520" y="246" text-anchor="middle" fill="#e8eef6" font-family="sans-serif" font-size="15">process_file이 같은 검증식으로 마스터·첨부 명세를 스캔합니다. 서버 전송 없음.</text>
+  <text x="520" y="272" text-anchor="middle" fill="#c5e8d4" font-family="sans-serif" font-size="13">PPTX는 ZIP 안 마스터 XML을 제자리 치환하고, PDF는 TXT 대체 출력에 첨부 설명을 포함합니다.</text>
+</svg>

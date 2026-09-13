@@ -351,6 +351,8 @@ pub fn is_drawingml_text_part(name: &str) -> bool {
     n.ends_with(".xml")
         && (n.starts_with("ppt/slides/")
             || n.starts_with("ppt/notesSlides/")
+            || n.starts_with("ppt/slideMasters/")
+            || n.starts_with("ppt/slideLayouts/")
             || n.starts_with("xl/drawings/")
             || n.starts_with("xl/charts/"))
 }
@@ -406,6 +408,8 @@ fn is_pptx_text_part(name: &str) -> bool {
     n.ends_with(".xml")
         && (n.starts_with("ppt/slides/")
             || n.starts_with("ppt/notesSlides/")
+            || n.starts_with("ppt/slideMasters/")
+            || n.starts_with("ppt/slideLayouts/")
             || n.starts_with("ppt/comments"))
 }
 
